@@ -1,0 +1,230 @@
+// This is your Prisma schema file
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// User & IAM Models
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  roleId    String
+  role      IAMRole  @relation(fields: [roleId], references: [id])
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs AuditLog[]
+  ecos          ECO[]      @relation("RequestedBy")
+  approvedECOs  ECO[]      @relation("ApprovedBy")
+  executedECOs  ECO[]      @relation("ExecutedBy")
+  ecoComments   ECOComment[]
+}
+
+model IAMRole {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  isSystem    Boolean  @default(false)
+  permissions String   // JSON array
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+}
+
+// Product & BOM Models
+model Product {
+  id            String   @id @default(uuid())
+  name          String
+  sku           String   @unique
+  description   String
+  category      String
+  status        String
+  version       String?
+  unitOfMeasure String?
+  cost          Float
+  quantity      Int      @default(0)
+  supplier      String?
+  attributes    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  boms          BOM[]
+  bomComponents BOMComponent[]
+  ecos          ECO[]
+  workOrders    WorkOrder[]
+  defects       Defect[]
+}
+
+model BOM {
+  id        String   @id @default(uuid())
+  name      String
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  version   String
+  parentId  String?
+  parent    BOM?     @relation("BOMVersions", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions  BOM[]    @relation("BOMVersions")
+  isLatest  Boolean  @default(true)
+  status    String
+  totalCost Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  components BOMComponent[]
+  operations BOMOperation[]
+  ecos       ECO[]
+  workOrders WorkOrder[]
+}
+
+model BOMComponent {
+  id        String   @id @default(uuid())
+  bomId     String
+  bom       BOM      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  quantity  Float
+  unitCost  Float
+  createdAt DateTime @default(now())
+}
+
+model BOMOperation {
+  id         String   @id @default(uuid())
+  bomId      String
+  bom        BOM      @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  name       String
+  workCenter String
+  duration   Int
+  cost       Float
+  sequence   Int
+  createdAt  DateTime @default(now())
+}
+
+// ECO Model
+model ECO {
+  id               String    @id @default(uuid())
+  title            String
+  description      String
+  reason           String?
+  type             String
+  status           String
+  priority         String
+  version          Int       @default(1)
+  parentId         String?
+  parent           ECO?      @relation("ECOVersions", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions         ECO[]     @relation("ECOVersions")
+  isLatest         Boolean   @default(true)
+  productId        String?
+  product          Product?  @relation(fields: [productId], references: [id])
+  bomId            String?
+  bom              BOM?      @relation(fields: [bomId], references: [id])
+  requestedById    String
+  requestedBy      User      @relation("RequestedBy", fields: [requestedById], references: [id])
+  requestedByName  String
+  approvedById     String?
+  approvedBy       User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+  executedById     String?
+  executedBy       User?     @relation("ExecutedBy", fields: [executedById], references: [id])
+  executedAt       DateTime?
+  effectiveDate    DateTime?
+  approvalDate     DateTime?
+  proposedChanges  String
+  impactAnalysis   String
+  complianceChecks String
+  aiRiskScore      Float?
+  aiPredictedDelay Int?
+  aiKeyRisks       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  auditLogs AuditLog[]
+  comments  ECOComment[]
+}
+
+model ECOComment {
+  id        String   @id @default(uuid())
+  content   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  ecoId     String
+  eco       ECO      @relation(fields: [ecoId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// Work Order & Supplier Models
+model WorkOrder {
+  id             String    @id @default(uuid())
+  productId      String
+  product        Product   @relation(fields: [productId], references: [id])
+  bomId          String?
+  bom            BOM?      @relation(fields: [bomId], references: [id])
+  name           String?
+  quantity       Int
+  priority       String    @default("medium")
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  plannedStart   DateTime?
+  plannedEnd     DateTime?
+  actualStart    DateTime?
+  actualEnd      DateTime?
+  status         String
+  progress       Int       @default(0)
+  scrapCount     Int       @default(0)
+  reworkCount    Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  defects Defect[]
+}
+
+model Supplier {
+  id                 String   @id @default(uuid())
+  name               String
+  leadTimeDays       Int
+  defectRate         Float
+  onTimeDeliveryRate Float
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  defects Defect[]
+}
+
+model Defect {
+  id           String     @id @default(uuid())
+  productId    String?
+  product      Product?   @relation(fields: [productId], references: [id])
+  supplierId   String?
+  supplier     Supplier?  @relation(fields: [supplierId], references: [id])
+  workOrderId  String?
+  workOrder    WorkOrder? @relation(fields: [workOrderId], references: [id])
+  type         String
+  severity     String
+  description  String
+  discoveredAt DateTime
+  createdAt    DateTime   @default(now())
+}
+
+// Audit Log Model
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  entityType String
+  entityId   String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  oldValue   String?
+  newValue   String?
+  metadata   String?
+  timestamp  DateTime @default(now())
+
+  eco ECO? @relation(fields: [entityId], references: [id])
+}
