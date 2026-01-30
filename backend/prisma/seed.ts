@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -35,9 +35,11 @@ async function main() {
                 'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
                 'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
                 'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
+                'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
                 'reports.view', 'reports.export',
                 'settings.view', 'settings.edit', 'settings.iam',
-                'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles'
+                'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles',
+                'roles.view', 'roles.create', 'roles.edit', 'roles.delete'
             ]),
         },
     });
@@ -52,6 +54,7 @@ async function main() {
                 'products.view', 'products.create', 'products.edit',
                 'boms.view', 'boms.create', 'boms.edit', 'boms.canvas',
                 'ecos.view', 'ecos.create', 'ecos.edit',
+                'workorders.view', 'workorders.create', 'workorders.edit',
                 'reports.view'
             ]),
         },
@@ -82,6 +85,7 @@ async function main() {
                 'products.view',
                 'boms.view',
                 'ecos.view', 'ecos.submit',
+                'workorders.view', 'workorders.create', 'workorders.edit',
                 'reports.view'
             ]),
         },

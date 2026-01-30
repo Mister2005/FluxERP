@@ -1,0 +1,400 @@
+## ECO (Engineering Change Order) Endpoints
+
+paths:
+  /api/ecos:
+    get:
+      tags:
+        - ECOs
+      summary: List all ECOs
+      description: |
+        Returns a list of Engineering Change Orders with optional filtering.
+        
+        **Note:** By default, only the latest version of each ECO is returned.
+        Use `includeAllVersions=true` to see version history.
+      operationId: listECOs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_review, in_review, approved, rejected, implemented]
+          description: Filter by ECO status
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+          description: Filter by priority level
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [standard, emergency, deviation]
+          description: Filter by ECO type
+        - name: productId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by associated product
+        - name: includeAllVersions
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include all versions of each ECO
+      responses:
+        '200':
+          description: ECOs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ECO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - ECOs
+      summary: Create a new ECO
+      description: |
+        Creates a new Engineering Change Order.
+        
+        An ECO number is automatically generated (e.g., ECO-2026-0001).
+        The ECO starts with version 1 and status 'draft'.
+      operationId: createECO
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateECORequest'
+            example:
+              title: Update motor voltage specifications
+              description: Change the motor voltage from 12V to 24V for improved performance and reliability in high-temperature environments.
+              reason: Customer feedback indicates insufficient power in extreme conditions
+              type: standard
+              priority: high
+              productId: 550e8400-e29b-41d4-a716-446655440000
+              proposedChanges:
+                - field: motorVoltage
+                  oldValue: "12V"
+                  newValue: "24V"
+      responses:
+        '201':
+          description: ECO created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/ecos/{id}:
+    get:
+      tags:
+        - ECOs
+      summary: Get ECO by ID
+      description: Returns a single ECO with all its details, comments, and version history
+      operationId: getECOById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      responses:
+        '200':
+          description: ECO retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ECO'
+                  - type: object
+                    properties:
+                      comments:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            content:
+                              type: string
+                            createdBy:
+                              $ref: '#/components/schemas/User'
+                            createdAt:
+                              type: string
+                              format: date-time
+                      versions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            version:
+                              type: integer
+                            createdAt:
+                              type: string
+                              format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - ECOs
+      summary: Update an ECO
+      description: |
+        Updates an ECO. The behavior depends on what is being updated:
+        
+        - **Status only change:** Updates the status in place (no new version)
+        - **Content changes:** Creates a new version with incremented version number.
+          The previous version is marked with `isLatest: false`.
+        
+        **Note:** Returns 201 when a new version is created, 200 for status-only updates.
+      operationId: updateECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateECORequest'
+      responses:
+        '200':
+          description: ECO updated (status change only)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '201':
+          description: New ECO version created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - ECOs
+      summary: Delete an ECO
+      description: Deletes an ECO and all its associated comments and audit logs
+      operationId: deleteECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      responses:
+        '200':
+          description: ECO deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: ECO deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/ecos/{id}/submit:
+    post:
+      tags:
+        - ECOs
+      summary: Submit ECO for review
+      description: Changes the ECO status from 'draft' to 'pending_review'
+      operationId: submitECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      responses:
+        '200':
+          description: ECO submitted for review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '400':
+          description: ECO is not in draft status
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/ecos/{id}/approve:
+    post:
+      tags:
+        - ECOs
+      summary: Approve an ECO
+      description: Approves the ECO (changes status to 'approved')
+      operationId: approveECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      responses:
+        '200':
+          description: ECO approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/ecos/{id}/reject:
+    post:
+      tags:
+        - ECOs
+      summary: Reject an ECO
+      description: Rejects the ECO (changes status to 'rejected')
+      operationId: rejectECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Reason for rejection
+      responses:
+        '200':
+          description: ECO rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ECO'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/ecos/{id}/comments:
+    post:
+      tags:
+        - ECOs
+      summary: Add comment to ECO
+      description: Adds a comment to the ECO discussion thread
+      operationId: addECOComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  example: This change looks good, but we should verify the power requirements first.
+      responses:
+        '201':
+          description: Comment added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  content:
+                    type: string
+                  createdBy:
+                    $ref: '#/components/schemas/User'
+                  createdAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'

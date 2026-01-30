@@ -1,0 +1,286 @@
+## BOM (Bill of Materials) Endpoints
+
+paths:
+  /api/boms:
+    get:
+      tags:
+        - BOMs
+      summary: List all BOMs
+      description: Returns a list of Bill of Materials with optional filtering
+      operationId: listBOMs
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, active, obsolete]
+          description: Filter by BOM status
+        - name: productId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by associated product
+      responses:
+        '200':
+          description: BOMs retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BOM'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - BOMs
+      summary: Create a new BOM
+      description: Creates a new Bill of Materials for a product
+      operationId: createBOM
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBOMRequest'
+            example:
+              name: Widget Pro Assembly BOM
+              productId: 550e8400-e29b-41d4-a716-446655440000
+              version: "1.0"
+              status: draft
+              items:
+                - partNumber: MTR-001
+                  partName: DC Motor 24V
+                  quantity: 1
+                  unit: pcs
+                  unitCost: 25.50
+                - partNumber: SCR-002
+                  partName: M3 Screws
+                  quantity: 8
+                  unit: pcs
+                  unitCost: 0.15
+                - partNumber: HSG-003
+                  partName: Plastic Housing
+                  quantity: 1
+                  unit: pcs
+                  unitCost: 12.00
+      responses:
+        '201':
+          description: BOM created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOM'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/boms/{id}:
+    get:
+      tags:
+        - BOMs
+      summary: Get BOM by ID
+      description: Returns a single BOM with all its items and details
+      operationId: getBOMById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID
+      responses:
+        '200':
+          description: BOM retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOM'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - BOMs
+      summary: Update a BOM
+      description: Updates an existing BOM and its items
+      operationId: updateBOM
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBOMRequest'
+      responses:
+        '200':
+          description: BOM updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOM'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - BOMs
+      summary: Delete a BOM
+      description: Deletes a BOM and all its associated items
+      operationId: deleteBOM
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID
+      responses:
+        '200':
+          description: BOM deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: BOM deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/boms/{id}/items:
+    post:
+      tags:
+        - BOMs
+      summary: Add item to BOM
+      description: Adds a new item/component to an existing BOM
+      operationId: addBOMItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - partNumber
+                - partName
+                - quantity
+                - unit
+              properties:
+                partNumber:
+                  type: string
+                  example: CMP-001
+                partName:
+                  type: string
+                  example: Capacitor 100µF
+                quantity:
+                  type: number
+                  minimum: 0
+                  example: 4
+                unit:
+                  type: string
+                  example: pcs
+                unitCost:
+                  type: number
+                  minimum: 0
+                  example: 0.35
+      responses:
+        '201':
+          description: Item added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BOMItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/boms/{id}/items/{itemId}:
+    delete:
+      tags:
+        - BOMs
+      summary: Remove item from BOM
+      description: Removes an item/component from a BOM
+      operationId: removeBOMItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM Item ID
+      responses:
+        '200':
+          description: Item removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Item removed successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'

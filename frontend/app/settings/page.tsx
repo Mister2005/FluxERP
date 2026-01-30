@@ -7,39 +7,265 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Tabs } from '@/components/ui/Tabs';
-import { Plus, Edit, Trash2, Shield, Users, Settings as SettingsIcon } from 'lucide-react';
+import DataManagementPanel from '@/components/data/CSVManagement';
+import EmailSettings from '@/components/settings/EmailSettings';
+import JobMonitoringPanel from '@/components/settings/JobMonitoringPanel';
+import { Plus, Edit, Trash2, Shield, Users, Settings as SettingsIcon, Database, Mail, Activity, X } from 'lucide-react';
+
+interface User {
+    id: string;
+    email: string;
+    name: string;
+    roleId: string;
+    role: { name: string };
+    isActive: boolean;
+    createdAt: string;
+}
+
+interface Role {
+    id: string;
+    name: string;
+    description: string;
+    permissions: string;
+    isSystem: boolean;
+    userCount: number;
+}
+
+// Modal component
+function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+    if (!isOpen) return null;
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+                {children}
+            </div>
+        </div>
+    );
+}
 
 export default function SettingsPage() {
-    const [users, setUsers] = useState([]);
-    const [roles, setRoles] = useState([]);
+    const [users, setUsers] = useState<User[]>([]);
+    const [roles, setRoles] = useState<Role[]>([]);
     const [loading, setLoading] = useState(true);
     const router = useRouter();
+    
+    // Modal state
+    const [userModalOpen, setUserModalOpen] = useState(false);
+    const [roleModalOpen, setRoleModalOpen] = useState(false);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [editingRole, setEditingRole] = useState<Role | null>(null);
+    const [saving, setSaving] = useState(false);
+    
+    // Form state
+    const [userForm, setUserForm] = useState({ name: '', email: '', password: '', roleId: '', isActive: true });
+    const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [] as string[] });
 
-    useEffect(() => {
+    const availablePermissions = [
+        'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
+        'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
+        'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
+        'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
+        'reports.view', 'reports.export',
+        'settings.view', 'settings.edit', 'settings.iam',
+        'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles'
+    ];
+
+    const fetchData = async () => {
         const token = localStorage.getItem('token');
         if (!token) {
             router.push('/login');
             return;
         }
 
-        Promise.all([
-            fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            }).then(res => res.json()),
-            fetch(`${process.env.NEXT_PUBLIC_API_URL}/roles`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            }).then(res => res.json())
-        ])
-            .then(([usersData, rolesData]) => {
-                setUsers(usersData);
-                setRoles(rolesData);
-                setLoading(false);
-            })
-            .catch(err => {
-                console.error(err);
-                setLoading(false);
-            });
+        try {
+            const [usersRes, rolesRes] = await Promise.all([
+                fetch(`${process.env.NEXT_PUBLIC_API_URL}/users`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                }),
+                fetch(`${process.env.NEXT_PUBLIC_API_URL}/roles`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+            ]);
+            
+            const usersData = await usersRes.json();
+            const rolesData = await rolesRes.json();
+            
+            setUsers(Array.isArray(usersData) ? usersData : []);
+            setRoles(Array.isArray(rolesData) ? rolesData : []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
     }, [router]);
+
+    // User CRUD handlers
+    const openAddUser = () => {
+        setEditingUser(null);
+        setUserForm({ name: '', email: '', password: '', roleId: roles[0]?.id || '', isActive: true });
+        setUserModalOpen(true);
+    };
+
+    const openEditUser = (user: User) => {
+        setEditingUser(user);
+        setUserForm({ name: user.name, email: user.email, password: '', roleId: user.roleId, isActive: user.isActive });
+        setUserModalOpen(true);
+    };
+
+    const handleSaveUser = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        setSaving(true);
+        try {
+            const url = editingUser 
+                ? `${process.env.NEXT_PUBLIC_API_URL}/users/${editingUser.id}`
+                : `${process.env.NEXT_PUBLIC_API_URL}/users`;
+            
+            const body = editingUser 
+                ? { name: userForm.name, email: userForm.email, roleId: userForm.roleId, isActive: userForm.isActive, ...(userForm.password && { password: userForm.password }) }
+                : userForm;
+            
+            const res = await fetch(url, {
+                method: editingUser ? 'PUT' : 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            if (res.ok) {
+                setUserModalOpen(false);
+                fetchData();
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to save user');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to save user');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDeleteUser = async (user: User) => {
+        if (!confirm(`Are you sure you want to delete user "${user.name}"?`)) return;
+        
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/${user.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (res.ok) {
+                fetchData();
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to delete user');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete user');
+        }
+    };
+
+    // Role CRUD handlers
+    const openAddRole = () => {
+        setEditingRole(null);
+        setRoleForm({ name: '', description: '', permissions: [] });
+        setRoleModalOpen(true);
+    };
+
+    const openEditRole = (role: Role) => {
+        setEditingRole(role);
+        let permissions: string[] = [];
+        try {
+            permissions = typeof role.permissions === 'string' ? JSON.parse(role.permissions) : role.permissions;
+        } catch { permissions = []; }
+        setRoleForm({ name: role.name, description: role.description, permissions });
+        setRoleModalOpen(true);
+    };
+
+    const handleSaveRole = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        setSaving(true);
+        try {
+            const url = editingRole 
+                ? `${process.env.NEXT_PUBLIC_API_URL}/roles/${editingRole.id}`
+                : `${process.env.NEXT_PUBLIC_API_URL}/roles`;
+            
+            const res = await fetch(url, {
+                method: editingRole ? 'PUT' : 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(roleForm)
+            });
+            
+            if (res.ok) {
+                setRoleModalOpen(false);
+                fetchData();
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to save role');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to save role');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDeleteRole = async (role: Role) => {
+        if (role.isSystem) {
+            alert('Cannot delete system roles');
+            return;
+        }
+        if (!confirm(`Are you sure you want to delete role "${role.name}"?`)) return;
+        
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/roles/${role.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (res.ok) {
+                fetchData();
+            } else {
+                const data = await res.json();
+                alert(data.error || 'Failed to delete role');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete role');
+        }
+    };
+
+    const togglePermission = (perm: string) => {
+        setRoleForm(prev => ({
+            ...prev,
+            permissions: prev.permissions.includes(perm) 
+                ? prev.permissions.filter(p => p !== perm)
+                : [...prev.permissions, perm]
+        }));
+    };
 
     const tabs = [
         {
@@ -50,7 +276,7 @@ export default function SettingsPage() {
                 <div>
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-lg font-semibold text-gray-900">User Management</h2>
-                        <Button icon={Plus} size="sm">Add User</Button>
+                        <Button icon={Plus} size="sm" onClick={openAddUser}>Add User</Button>
                     </div>
 
                     <Card>
@@ -62,12 +288,12 @@ export default function SettingsPage() {
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Login</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {users.map((user: any) => (
+                                    {users.map((user) => (
                                         <tr key={user.id}>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{user.name}</td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
@@ -78,20 +304,31 @@ export default function SettingsPage() {
                                                 </Badge>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
+                                                {new Date(user.createdAt).toLocaleDateString()}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm">
                                                 <div className="flex gap-2">
-                                                    <button className="text-[#8D6E63] hover:text-[#6D4C41]">
+                                                    <button 
+                                                        className="text-[#8D6E63] hover:text-[#6D4C41]"
+                                                        onClick={() => openEditUser(user)}
+                                                    >
                                                         <Edit className="w-4 h-4" />
                                                     </button>
-                                                    <button className="text-red-600 hover:text-red-900">
+                                                    <button 
+                                                        className="text-red-600 hover:text-red-900"
+                                                        onClick={() => handleDeleteUser(user)}
+                                                    >
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
                                                 </div>
                                             </td>
                                         </tr>
                                     ))}
+                                    {users.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">No users found</td>
+                                        </tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -107,16 +344,17 @@ export default function SettingsPage() {
                 <div>
                     <div className="flex justify-between items-center mb-6">
                         <h2 className="text-lg font-semibold text-gray-900">Role Management</h2>
-                        <Button icon={Plus} size="sm">Add Role</Button>
+                        <Button icon={Plus} size="sm" onClick={openAddRole}>Add Role</Button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Array.isArray(roles) && roles.map((role: any) => (
+                        {Array.isArray(roles) && roles.map((role) => (
                             <Card key={role.id}>
                                 <div className="flex justify-between items-start mb-4">
                                     <div>
                                         <h3 className="text-lg font-semibold text-gray-900 capitalize">{role.name}</h3>
                                         <p className="text-sm text-gray-500">{role.description || 'No description'}</p>
+                                        {role.isSystem && <Badge variant="warning" className="mt-1">System</Badge>}
                                     </div>
                                     <Badge variant="default">{role.userCount || 0} users</Badge>
                                 </div>
@@ -131,7 +369,7 @@ export default function SettingsPage() {
                                                     : role.permissions;
 
                                                 return permissions && Array.isArray(permissions) && permissions.length > 0 ? (
-                                                    permissions.map((perm: string, idx: number) => (
+                                                    permissions.slice(0, 5).map((perm: string, idx: number) => (
                                                         <span key={idx} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
                                                             {perm}
                                                         </span>
@@ -143,15 +381,43 @@ export default function SettingsPage() {
                                                 return <span className="text-xs text-gray-500">No permissions assigned</span>;
                                             }
                                         })()}
+                                        {(() => {
+                                            try {
+                                                const permissions = typeof role.permissions === 'string' ? JSON.parse(role.permissions) : role.permissions;
+                                                return permissions && permissions.length > 5 ? (
+                                                    <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                                                        +{permissions.length - 5} more
+                                                    </span>
+                                                ) : null;
+                                            } catch { return null; }
+                                        })()}
                                     </div>
                                 </div>
 
                                 <div className="flex gap-2 pt-4 border-t border-gray-100">
-                                    <Button variant="secondary" size="sm" icon={Edit}>Edit</Button>
-                                    <Button variant="danger" size="sm" icon={Trash2}>Delete</Button>
+                                    <Button 
+                                        variant="secondary" 
+                                        size="sm" 
+                                        icon={Edit}
+                                        onClick={() => openEditRole(role)}
+                                    >
+                                        {role.isSystem ? 'Edit Permissions' : 'Edit'}
+                                    </Button>
+                                    <Button 
+                                        variant="danger" 
+                                        size="sm" 
+                                        icon={Trash2}
+                                        onClick={() => handleDeleteRole(role)}
+                                        disabled={role.isSystem}
+                                    >
+                                        Delete
+                                    </Button>
                                 </div>
                             </Card>
                         ))}
+                        {roles.length === 0 && (
+                            <div className="col-span-3 text-center text-gray-500 py-8">No roles found</div>
+                        )}
                     </div>
                 </div>
             )
@@ -233,6 +499,46 @@ export default function SettingsPage() {
                     </Card>
                 </div>
             )
+        },
+        {
+            id: 'email',
+            label: 'Email',
+            icon: Mail,
+            content: <EmailSettings />
+        },
+        {
+            id: 'jobs',
+            label: 'Background Jobs',
+            icon: Activity,
+            content: <JobMonitoringPanel />
+        },
+        {
+            id: 'data',
+            label: 'Data Management',
+            icon: Database,
+            content: (
+                <div className="space-y-8">
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Products</h2>
+                        <DataManagementPanel type="products" onImportSuccess={() => window.location.reload()} />
+                    </div>
+                    
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Bills of Materials</h2>
+                        <DataManagementPanel type="boms" onImportSuccess={() => window.location.reload()} />
+                    </div>
+                    
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Engineering Change Orders</h2>
+                        <DataManagementPanel type="ecos" />
+                    </div>
+                    
+                    <div>
+                        <h2 className="text-lg font-semibold text-gray-900 mb-4">Work Orders</h2>
+                        <DataManagementPanel type="work-orders" />
+                    </div>
+                </div>
+            )
         }
     ];
 
@@ -244,6 +550,125 @@ export default function SettingsPage() {
             </div>
 
             <Tabs tabs={tabs} />
+            
+            {/* User Modal */}
+            <Modal isOpen={userModalOpen} onClose={() => setUserModalOpen(false)} title={editingUser ? 'Edit User' : 'Add User'}>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <input
+                            type="text"
+                            value={userForm.name}
+                            onChange={(e) => setUserForm(prev => ({ ...prev, name: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input
+                            type="email"
+                            value={userForm.email}
+                            onChange={(e) => setUserForm(prev => ({ ...prev, email: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            {editingUser ? 'New Password (leave blank to keep current)' : 'Password'}
+                        </label>
+                        <input
+                            type="password"
+                            value={userForm.password}
+                            onChange={(e) => setUserForm(prev => ({ ...prev, password: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                        <select
+                            value={userForm.roleId}
+                            onChange={(e) => setUserForm(prev => ({ ...prev, roleId: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
+                        >
+                            <option value="">Select a role</option>
+                            {roles.map(role => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="userActive"
+                            checked={userForm.isActive}
+                            onChange={(e) => setUserForm(prev => ({ ...prev, isActive: e.target.checked }))}
+                            className="w-4 h-4 text-[#8D6E63] rounded"
+                        />
+                        <label htmlFor="userActive" className="text-sm text-gray-700">Active</label>
+                    </div>
+                    <div className="flex gap-2 pt-4">
+                        <Button onClick={handleSaveUser} isLoading={saving}>
+                            {editingUser ? 'Update User' : 'Create User'}
+                        </Button>
+                        <Button variant="secondary" onClick={() => setUserModalOpen(false)}>Cancel</Button>
+                    </div>
+                </div>
+            </Modal>
+            
+            {/* Role Modal */}
+            <Modal isOpen={roleModalOpen} onClose={() => setRoleModalOpen(false)} title={editingRole ? (editingRole.isSystem ? 'Edit System Role Permissions' : 'Edit Role') : 'Add Role'}>
+                <div className="space-y-4">
+                    {editingRole?.isSystem && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                            System roles cannot be renamed or deleted, but you can modify their permissions.
+                        </div>
+                    )}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                        <input
+                            type="text"
+                            value={roleForm.name}
+                            onChange={(e) => setRoleForm(prev => ({ ...prev, name: e.target.value }))}
+                            disabled={editingRole?.isSystem}
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63] ${editingRole?.isSystem ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <textarea
+                            value={roleForm.description}
+                            onChange={(e) => setRoleForm(prev => ({ ...prev, description: e.target.value }))}
+                            disabled={editingRole?.isSystem}
+                            rows={2}
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63] ${editingRole?.isSystem ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
+                        <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2">
+                            <div className="grid grid-cols-2 gap-2">
+                                {availablePermissions.map(perm => (
+                                    <label key={perm} className="flex items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            checked={roleForm.permissions.includes(perm)}
+                                            onChange={() => togglePermission(perm)}
+                                            className="w-3 h-3 text-[#8D6E63] rounded"
+                                        />
+                                        <span className="text-gray-700">{perm}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 pt-4">
+                        <Button onClick={handleSaveRole} isLoading={saving}>
+                            {editingRole ? 'Update Role' : 'Create Role'}
+                        </Button>
+                        <Button variant="secondary" onClick={() => setRoleModalOpen(false)}>Cancel</Button>
+                    </div>
+                </div>
+            </Modal>
         </AppLayout>
     );
 }

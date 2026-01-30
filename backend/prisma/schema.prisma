@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -63,6 +63,10 @@ model Product {
   ecos          ECO[]
   workOrders    WorkOrder[]
   defects       Defect[]
+
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model BOM {
@@ -84,6 +88,11 @@ model BOM {
   operations BOMOperation[]
   ecos       ECO[]
   workOrders WorkOrder[]
+
+  @@index([productId])
+  @@index([status])
+  @@index([isLatest])
+  @@index([createdAt])
 }
 
 model BOMComponent {
@@ -148,6 +157,13 @@ model ECO {
 
   auditLogs AuditLog[]
   comments  ECOComment[]
+
+  @@index([status])
+  @@index([isLatest])
+  @@index([productId])
+  @@index([requestedById])
+  @@index([createdAt])
+  @@index([priority])
 }
 
 model ECOComment {
@@ -184,14 +200,26 @@ model WorkOrder {
   updatedAt      DateTime  @updatedAt
 
   defects Defect[]
+
+  @@index([status])
+  @@index([productId])
+  @@index([priority])
+  @@index([scheduledStart])
+  @@index([createdAt])
 }
 
 model Supplier {
   id                 String   @id @default(uuid())
   name               String
-  leadTimeDays       Int
-  defectRate         Float
-  onTimeDeliveryRate Float
+  contactPerson      String?
+  email              String?
+  phone              String?
+  address            String?
+  leadTimeDays       Int      @default(14)
+  defectRate         Float    @default(0)
+  onTimeDeliveryRate Float    @default(0.95)
+  rating             Float?
+  isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -227,4 +255,9 @@ model AuditLog {
   timestamp  DateTime @default(now())
 
   eco ECO? @relation(fields: [entityId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([timestamp])
+  @@index([action])
 }

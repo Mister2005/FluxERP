@@ -1,0 +1,254 @@
+## AI Analysis Endpoints
+
+paths:
+  /api/ai/analyze:
+    post:
+      tags:
+        - AI
+      summary: Analyze with AI
+      description: |
+        Sends a prompt to the AI (Gemini) for analysis in the context of ERP operations.
+        
+        **Rate Limit:** 10 requests per minute
+        
+        Use cases:
+        - Analyze ECO impact and risks
+        - Get BOM optimization suggestions
+        - Identify potential issues in work orders
+        - Generate improvement recommendations
+      operationId: analyzeWithAI
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIAnalysisRequest'
+            examples:
+              ecoAnalysis:
+                summary: ECO Risk Analysis
+                value:
+                  prompt: "Analyze the following ECO for potential risks and implementation challenges"
+                  context:
+                    ecoTitle: "Change motor voltage from 12V to 24V"
+                    productName: "Widget Pro"
+                    priority: "high"
+              bomOptimization:
+                summary: BOM Optimization
+                value:
+                  prompt: "Suggest optimizations for this Bill of Materials to reduce costs"
+                  context:
+                    bomName: "Widget Pro Assembly"
+                    totalCost: 150.50
+                    itemCount: 25
+      responses:
+        '200':
+          description: AI analysis completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAnalysisResponse'
+              example:
+                analysis: |
+                  Based on the proposed change from 12V to 24V motor:
+                  
+                  **Potential Risks:**
+                  1. Power supply compatibility - existing 12V supplies will need replacement
+                  2. Thermal considerations - higher voltage may increase heat output
+                  3. Component compatibility - verify capacitors and resistors can handle 24V
+                  
+                  **Implementation Recommendations:**
+                  1. Update all product documentation
+                  2. Notify supply chain of component changes
+                  3. Plan for inventory transition period
+                suggestions:
+                  - Review all downstream components for voltage compatibility
+                  - Update testing procedures for new voltage specifications
+                  - Consider a phased rollout to manage inventory
+                processingTime: 1.234
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: AI rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: AI rate limit exceeded. Please wait before trying again.
+                code: RATE_LIMIT_EXCEEDED
+        '500':
+          description: AI service error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: AI service temporarily unavailable
+                code: AI_SERVICE_ERROR
+
+  /api/ai/eco/{id}/analyze:
+    post:
+      tags:
+        - AI
+      summary: Analyze specific ECO
+      description: |
+        Analyzes a specific Engineering Change Order using AI.
+        
+        The AI will automatically retrieve the ECO details and provide:
+        - Impact assessment
+        - Risk analysis
+        - Implementation recommendations
+        - Potential issues to consider
+      operationId: analyzeECO
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: ECO ID to analyze
+      responses:
+        '200':
+          description: ECO analysis completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ecoId:
+                    type: string
+                  ecoTitle:
+                    type: string
+                  analysis:
+                    type: string
+                  riskLevel:
+                    type: string
+                    enum: [low, medium, high, critical]
+                  recommendations:
+                    type: array
+                    items:
+                      type: string
+                  impactAreas:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/ai/bom/{id}/optimize:
+    post:
+      tags:
+        - AI
+      summary: Get BOM optimization suggestions
+      description: |
+        Analyzes a Bill of Materials and suggests optimizations for:
+        - Cost reduction opportunities
+        - Alternative components
+        - Quantity adjustments
+        - Supplier consolidation
+      operationId: optimizeBOM
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: BOM ID to analyze
+      responses:
+        '200':
+          description: BOM optimization analysis completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bomId:
+                    type: string
+                  currentTotalCost:
+                    type: number
+                  potentialSavings:
+                    type: number
+                  optimizations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        itemId:
+                          type: string
+                        partName:
+                          type: string
+                        suggestion:
+                          type: string
+                        estimatedSavings:
+                          type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/ai/chat:
+    post:
+      tags:
+        - AI
+      summary: Chat with AI assistant
+      description: |
+        Interactive chat with the AI assistant for ERP-related questions.
+        
+        The assistant can help with:
+        - General ERP questions
+        - Best practices for manufacturing
+        - Troubleshooting guidance
+        - Feature explanations
+      operationId: chatWithAI
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  minLength: 1
+                  example: "What's the best way to manage ECO versioning?"
+                conversationId:
+                  type: string
+                  description: Optional ID to maintain conversation context
+      responses:
+        '200':
+          description: Chat response received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  response:
+                    type: string
+                  conversationId:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'

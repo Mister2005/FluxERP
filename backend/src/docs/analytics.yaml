@@ -1,0 +1,361 @@
+## Analytics and Reports Endpoints
+
+paths:
+  /api/analytics/dashboard:
+    get:
+      tags:
+        - Analytics
+      summary: Get dashboard statistics
+      description: Returns aggregated statistics for the main dashboard
+      operationId: getDashboardStats
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Dashboard statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 150
+                      active:
+                        type: integer
+                        example: 120
+                      byCategory:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                  ecos:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 45
+                      byStatus:
+                        type: object
+                        properties:
+                          draft:
+                            type: integer
+                          pending_review:
+                            type: integer
+                          in_review:
+                            type: integer
+                          approved:
+                            type: integer
+                          rejected:
+                            type: integer
+                          implemented:
+                            type: integer
+                      byPriority:
+                        type: object
+                        properties:
+                          low:
+                            type: integer
+                          medium:
+                            type: integer
+                          high:
+                            type: integer
+                          critical:
+                            type: integer
+                  workOrders:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 25
+                      byStatus:
+                        type: object
+                        properties:
+                          planned:
+                            type: integer
+                          in_progress:
+                            type: integer
+                          completed:
+                            type: integer
+                          cancelled:
+                            type: integer
+                      completionRate:
+                        type: number
+                        format: float
+                        example: 85.5
+                  suppliers:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        example: 30
+                      averageRating:
+                        type: number
+                        format: float
+                        example: 4.2
+                      totalDefects:
+                        type: integer
+                        example: 12
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/analytics/trends:
+    get:
+      tags:
+        - Analytics
+      summary: Get trend data
+      description: Returns historical trend data for charts
+      operationId: getTrends
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [week, month, quarter, year]
+            default: month
+          description: Time period for trend data
+        - name: metric
+          in: query
+          schema:
+            type: string
+            enum: [ecos, workorders, products, defects]
+            default: ecos
+          description: Metric to retrieve trends for
+      responses:
+        '200':
+          description: Trend data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: string
+                  metric:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        value:
+                          type: integer
+                        label:
+                          type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/reports/eco-summary:
+    get:
+      tags:
+        - Analytics
+      summary: ECO summary report
+      description: Generates a summary report of ECO activity
+      operationId: getECOSummaryReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date for the report
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date for the report
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, pending_review, in_review, approved, rejected, implemented]
+          description: Filter by status
+      responses:
+        '200':
+          description: ECO summary report generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportPeriod:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date
+                      end:
+                        type: string
+                        format: date
+                  totalECOs:
+                    type: integer
+                  avgApprovalTime:
+                    type: number
+                    description: Average days to approval
+                  byType:
+                    type: object
+                  byPriority:
+                    type: object
+                  topProducts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        productId:
+                          type: string
+                        productName:
+                          type: string
+                        ecoCount:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/reports/production:
+    get:
+      tags:
+        - Analytics
+      summary: Production report
+      description: Generates a production report based on work orders
+      operationId: getProductionReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date for the report
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date for the report
+      responses:
+        '200':
+          description: Production report generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportPeriod:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date
+                      end:
+                        type: string
+                        format: date
+                  totalWorkOrders:
+                    type: integer
+                  completedWorkOrders:
+                    type: integer
+                  totalQuantityProduced:
+                    type: integer
+                  onTimeCompletion:
+                    type: number
+                    format: float
+                    description: Percentage of work orders completed on time
+                  byProduct:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        productId:
+                          type: string
+                        productName:
+                          type: string
+                        quantity:
+                          type: integer
+                        workOrderCount:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/reports/quality:
+    get:
+      tags:
+        - Analytics
+      summary: Quality report
+      description: Generates a quality report based on supplier defects
+      operationId: getQualityReport
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date for the report
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date for the report
+      responses:
+        '200':
+          description: Quality report generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reportPeriod:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date
+                      end:
+                        type: string
+                        format: date
+                  totalDefects:
+                    type: integer
+                  bySeverity:
+                    type: object
+                    properties:
+                      minor:
+                        type: integer
+                      major:
+                        type: integer
+                      critical:
+                        type: integer
+                  bySupplier:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        supplierId:
+                          type: string
+                        supplierName:
+                          type: string
+                        defectCount:
+                          type: integer
+                        rating:
+                          type: number
+                  trendData:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        date:
+                          type: string
+                          format: date
+                        count:
+                          type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'

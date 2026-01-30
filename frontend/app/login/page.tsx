@@ -25,11 +25,18 @@ export default function LoginPage() {
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Login failed');
+                throw new Error(data.error || data.message || 'Login failed');
             }
 
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
+            // Backend returns { user, token } directly
+            // Also support wrapped format { success: true, data: { user, token } }
+            const authData = data.data || data;
+            if (!authData.token || !authData.user) {
+                throw new Error('Invalid response from server');
+            }
+            
+            localStorage.setItem('token', authData.token);
+            localStorage.setItem('user', JSON.stringify(authData.user));
             router.push('/dashboard');
         } catch (err: any) {
             setError(err.message);

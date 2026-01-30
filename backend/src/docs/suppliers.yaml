@@ -1,0 +1,269 @@
+## Supplier Endpoints
+
+paths:
+  /api/suppliers:
+    get:
+      tags:
+        - Suppliers
+      summary: List all suppliers
+      description: Returns a list of all suppliers with defect information
+      operationId: listSuppliers
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Suppliers retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Supplier'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Suppliers
+      summary: Create a new supplier
+      description: Creates a new supplier record
+      operationId: createSupplier
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  example: Acme Components Inc.
+                contactEmail:
+                  type: string
+                  format: email
+                  example: sales@acmecomponents.com
+                contactPhone:
+                  type: string
+                  example: +1-555-123-4567
+                address:
+                  type: string
+                  example: 123 Industrial Blvd, Manufacturing City, MC 12345
+                rating:
+                  type: number
+                  minimum: 0
+                  maximum: 5
+                  example: 4.5
+      responses:
+        '201':
+          description: Supplier created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Supplier'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/suppliers/{id}:
+    get:
+      tags:
+        - Suppliers
+      summary: Get supplier by ID
+      description: Returns a single supplier with all details and defects
+      operationId: getSupplierById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Supplier ID
+      responses:
+        '200':
+          description: Supplier retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Supplier'
+                  - type: object
+                    properties:
+                      defects:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            severity:
+                              type: string
+                            description:
+                              type: string
+                            reportedAt:
+                              type: string
+                              format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Suppliers
+      summary: Update a supplier
+      description: Updates an existing supplier
+      operationId: updateSupplier
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Supplier ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                contactEmail:
+                  type: string
+                  format: email
+                contactPhone:
+                  type: string
+                address:
+                  type: string
+                rating:
+                  type: number
+                  minimum: 0
+                  maximum: 5
+      responses:
+        '200':
+          description: Supplier updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Supplier'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Suppliers
+      summary: Delete a supplier
+      description: Deletes a supplier record
+      operationId: deleteSupplier
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Supplier ID
+      responses:
+        '200':
+          description: Supplier deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Supplier deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/suppliers/{id}/defects:
+    post:
+      tags:
+        - Suppliers
+      summary: Report supplier defect
+      description: Reports a quality defect for a supplier
+      operationId: reportSupplierDefect
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Supplier ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - severity
+                - description
+              properties:
+                severity:
+                  type: string
+                  enum: [minor, major, critical]
+                  example: major
+                description:
+                  type: string
+                  minLength: 10
+                  example: Inconsistent thread pitch on delivered M3 screws. Batch #12345.
+                lotNumber:
+                  type: string
+                  example: LOT-2026-0123
+      responses:
+        '201':
+          description: Defect reported successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  severity:
+                    type: string
+                  description:
+                    type: string
+                  reportedAt:
+                    type: string
+                    format: date-time
+                  reportedBy:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'

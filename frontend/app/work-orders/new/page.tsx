@@ -5,20 +5,36 @@ import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
+
+interface Product {
+    id: string;
+    name: string;
+    sku: string;
+}
+
+interface BOM {
+    id: string;
+    name: string;
+    version: string;
+    productId?: string;
+}
 
 export default function NewWorkOrderPage() {
     const router = useRouter();
-    const [products, setProducts] = useState([]);
-    const [boms, setBoms] = useState([]);
+    const [products, setProducts] = useState<Product[]>([]);
+    const [boms, setBoms] = useState<BOM[]>([]);
+    const [filteredBoms, setFilteredBoms] = useState<BOM[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState('');
     const [formData, setFormData] = useState({
         name: '',
         productId: '',
         bomId: '',
         quantity: 1,
         priority: 'medium',
-        status: 'planned',
         scheduledStart: new Date().toISOString().split('T')[0],
         scheduledEnd: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     });
@@ -40,15 +56,49 @@ export default function NewWorkOrderPage() {
             }).then(res => res.json())
         ])
             .then(([productsData, bomsData]) => {
-                setProducts(productsData);
-                setBoms(bomsData);
+                // Handle various response formats
+                const productsList = Array.isArray(productsData) ? productsData : (productsData?.data || []);
+                const bomsList = Array.isArray(bomsData) ? bomsData : (bomsData?.data || []);
+                
+                setProducts(productsList);
+                setBoms(bomsList);
+                setFilteredBoms(bomsList);
+                setLoading(false);
             })
-            .catch(err => console.error(err));
+            .catch(err => {
+                console.error('Error loading data:', err);
+                setError('Failed to load products and BOMs');
+                setLoading(false);
+            });
     }, [router]);
+
+    // Filter BOMs when product changes
+    useEffect(() => {
+        if (formData.productId) {
+            const filtered = boms.filter(bom => bom.productId === formData.productId);
+            setFilteredBoms(filtered.length > 0 ? filtered : boms);
+        } else {
+            setFilteredBoms(boms);
+        }
+    }, [formData.productId, boms]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setError('');
+        setSubmitting(true);
+        
         const token = localStorage.getItem('token');
+        if (!token) {
+            setError('Not authenticated');
+            setSubmitting(false);
+            return;
+        }
+
+        if (!formData.productId) {
+            setError('Please select a product');
+            setSubmitting(false);
+            return;
+        }
 
         try {
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workorders`, {
@@ -57,20 +107,41 @@ export default function NewWorkOrderPage() {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(formData)
+                body: JSON.stringify({
+                    name: formData.name || null,
+                    productId: formData.productId,
+                    bomId: formData.bomId || null,
+                    quantity: formData.quantity,
+                    priority: formData.priority,
+                    scheduledStart: formData.scheduledStart,
+                    scheduledEnd: formData.scheduledEnd
+                })
             });
 
+            const data = await response.json();
+
             if (response.ok) {
-                const data = await response.json();
                 router.push(`/work-orders/${data.id}`);
             } else {
-                alert('Failed to create work order');
+                setError(data.error || 'Failed to create work order');
             }
         } catch (err) {
-            console.error(err);
-            alert('Error creating work order');
+            console.error('Create work order error:', err);
+            setError('Error creating work order. Please try again.');
+        } finally {
+            setSubmitting(false);
         }
     };
+
+    if (loading) {
+        return (
+            <AppLayout>
+                <div className="flex items-center justify-center h-96">
+                    <div className="spinner"></div>
+                </div>
+            </AppLayout>
+        );
+    }
 
     return (
         <AppLayout>
@@ -82,19 +153,26 @@ export default function NewWorkOrderPage() {
                 <h1 className="text-3xl font-bold text-[#3E2723]">Create New Work Order</h1>
             </div>
 
+            {error && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+                    <AlertCircle className="w-5 h-5" />
+                    <span>{error}</span>
+                </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-6">
                 <Card title="Basic Information">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Work Order Name *</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Work Order Name</label>
                             <input
                                 type="text"
-                                required
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 placeholder="e.g., Laptop Assembly - Batch 001"
                             />
+                            <p className="text-xs text-gray-500 mt-1">Optional - will use product name if not provided</p>
                         </div>
 
                         <div>
@@ -102,33 +180,38 @@ export default function NewWorkOrderPage() {
                             <select
                                 required
                                 value={formData.productId}
-                                onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
+                                onChange={(e) => setFormData({ ...formData, productId: e.target.value, bomId: '' })}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                             >
                                 <option value="">Select a product</option>
-                                {products.map((product: any) => (
+                                {products.map((product) => (
                                     <option key={product.id} value={product.id}>
                                         {product.name} ({product.sku})
                                     </option>
                                 ))}
                             </select>
+                            {products.length === 0 && (
+                                <p className="text-xs text-red-500 mt-1">No products found. Please create a product first.</p>
+                            )}
                         </div>
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">BOM *</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">BOM (Optional)</label>
                             <select
-                                required
                                 value={formData.bomId}
                                 onChange={(e) => setFormData({ ...formData, bomId: e.target.value })}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                             >
-                                <option value="">Select a BOM</option>
-                                {boms.map((bom: any) => (
+                                <option value="">Select a BOM (optional)</option>
+                                {filteredBoms.map((bom) => (
                                     <option key={bom.id} value={bom.id}>
                                         {bom.name} (v{bom.version})
                                     </option>
                                 ))}
                             </select>
+                            {filteredBoms.length === 0 && formData.productId && (
+                                <p className="text-xs text-gray-500 mt-1">No BOMs found for this product</p>
+                            )}
                         </div>
 
                         <div>
@@ -138,7 +221,7 @@ export default function NewWorkOrderPage() {
                                 required
                                 min="1"
                                 value={formData.quantity}
-                                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+                                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                             />
                         </div>
@@ -153,20 +236,6 @@ export default function NewWorkOrderPage() {
                                 <option value="low">Low</option>
                                 <option value="medium">Medium</option>
                                 <option value="high">High</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-                            <select
-                                value={formData.status}
-                                onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
-                            >
-                                <option value="planned">Planned</option>
-                                <option value="in_progress">In Progress</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
                             </select>
                         </div>
 
@@ -197,7 +266,9 @@ export default function NewWorkOrderPage() {
                     <Button type="button" variant="secondary" onClick={() => router.push('/work-orders')}>
                         Cancel
                     </Button>
-                    <Button type="submit">Create Work Order</Button>
+                    <Button type="submit" isLoading={submitting} disabled={products.length === 0}>
+                        Create Work Order
+                    </Button>
                 </div>
             </form>
         </AppLayout>

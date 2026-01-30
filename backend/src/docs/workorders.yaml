@@ -1,0 +1,225 @@
+## Work Order Endpoints
+
+paths:
+  /api/workorders:
+    get:
+      tags:
+        - Work Orders
+      summary: List all work orders
+      description: Returns a list of work orders with optional filtering
+      operationId: listWorkOrders
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [planned, in_progress, completed, cancelled]
+          description: Filter by work order status
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+          description: Filter by priority level
+        - name: productId
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by product
+      responses:
+        '200':
+          description: Work orders retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Work Orders
+      summary: Create a new work order
+      description: Creates a new production work order
+      operationId: createWorkOrder
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrderRequest'
+            example:
+              productId: 550e8400-e29b-41d4-a716-446655440000
+              bomId: 660e8400-e29b-41d4-a716-446655440001
+              quantity: 100
+              priority: high
+              scheduledStart: "2026-02-01T08:00:00Z"
+              scheduledEnd: "2026-02-05T17:00:00Z"
+      responses:
+        '201':
+          description: Work order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/workorders/{id}:
+    get:
+      tags:
+        - Work Orders
+      summary: Get work order by ID
+      description: Returns a single work order with all its details
+      operationId: getWorkOrderById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Work Order ID
+      responses:
+        '200':
+          description: Work order retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - Work Orders
+      summary: Update a work order
+      description: Updates an existing work order
+      operationId: updateWorkOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Work Order ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkOrderRequest'
+      responses:
+        '200':
+          description: Work order updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Work Orders
+      summary: Update work order status/progress
+      description: Partially updates a work order (status or progress only)
+      operationId: patchWorkOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Work Order ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [planned, in_progress, completed, cancelled]
+                progress:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+            example:
+              status: in_progress
+              progress: 45
+      responses:
+        '200':
+          description: Work order updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrder'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Work Orders
+      summary: Delete a work order
+      description: Deletes a work order
+      operationId: deleteWorkOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Work Order ID
+      responses:
+        '200':
+          description: Work order deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Work order deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'

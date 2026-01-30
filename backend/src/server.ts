@@ -4,6 +4,12 @@ import dotenv from 'dotenv';
 import prisma from './lib/db.js';
 import { hashPassword, comparePassword, generateToken, authenticate, AuthRequest, requirePermission } from './lib/auth.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { setupSwagger } from './config/swagger.js';
+import csvRouter from './routes/csv.js';
+import settingsRouter from './routes/settings.js';
+import jobsRouter from './routes/jobs.js';
+import { sendECOCreatedEmail, sendECOStatusChangedEmail, sendWorkOrderCreatedEmail, sendWorkOrderStatusChangedEmail } from './services/email.service.js';
+import { startWorkers, stopWorkers } from './services/workers.service.js';
 
 dotenv.config();
 
@@ -21,6 +27,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
     next();
 });
+
+// Setup Swagger API documentation
+setupSwagger(app);
 
 app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -513,6 +522,24 @@ ecosRouter.post('/', requirePermission('ecos.create'), async (req: AuthRequest, 
             }
         });
 
+        // Send email notification for ECO creation (async, don't wait)
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        sendECOCreatedEmail(
+            [{ email: req.user!.email }],
+            {
+                ecoId: eco.id,
+                ecoTitle: eco.title,
+                productName: eco.product?.name,
+                productSku: eco.product?.sku,
+                status: eco.status,
+                priority: eco.priority,
+                description: eco.description,
+                requestedBy: eco.requestedByName || req.user!.email,
+                reason: eco.reason || undefined,
+                link: `${frontendUrl}/ecos/${eco.id}`,
+            }
+        ).catch(err => console.error('Failed to send ECO created email:', err));
+
         res.status(201).json(eco);
     } catch (error) {
         console.error('Create ECO error:', error);
@@ -704,7 +731,30 @@ ecosRouter.post('/:id/submit', requirePermission('ecos.submit'), async (req: Aut
         const eco = await prisma.eCO.update({
             where: { id: String(req.params.id) },
             data: { status: 'in-review' },
+            include: { 
+                requestedBy: { select: { email: true } },
+                product: true,
+            },
         });
+
+        // Send email notification (async)
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        sendECOStatusChangedEmail(
+            eco.requestedBy?.email ? [{ email: eco.requestedBy.email }] : [{ email: req.user!.email }],
+            {
+                ecoId: eco.id,
+                ecoTitle: eco.title,
+                productName: eco.product?.name,
+                productSku: eco.product?.sku,
+                status: 'in-review',
+                priority: eco.priority,
+                requestedBy: eco.requestedByName || 'Unknown',
+                link: `${frontendUrl}/ecos/${eco.id}`,
+                oldStatus: 'draft',
+                changedBy: req.user!.email,
+            }
+        ).catch(err => console.error('Failed to send ECO status change email:', err));
+
         res.json(eco);
     } catch (error) {
         res.status(500).json({ error: 'Failed to submit ECO' });
@@ -716,7 +766,30 @@ ecosRouter.post('/:id/approve', requirePermission('ecos.approve'), async (req: A
         const eco = await prisma.eCO.update({
             where: { id: String(req.params.id) },
             data: { status: 'approved', approvalDate: new Date() },
+            include: { 
+                requestedBy: { select: { email: true } },
+                product: true,
+            },
         });
+
+        // Send email notification (async)
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        sendECOStatusChangedEmail(
+            eco.requestedBy?.email ? [{ email: eco.requestedBy.email }] : [{ email: req.user!.email }],
+            {
+                ecoId: eco.id,
+                ecoTitle: eco.title,
+                productName: eco.product?.name,
+                productSku: eco.product?.sku,
+                status: 'approved',
+                priority: eco.priority,
+                requestedBy: eco.requestedByName || 'Unknown',
+                link: `${frontendUrl}/ecos/${eco.id}`,
+                oldStatus: 'in-review',
+                changedBy: req.user!.email,
+            }
+        ).catch(err => console.error('Failed to send ECO approval email:', err));
+
         res.json(eco);
     } catch (error) {
         res.status(500).json({ error: 'Failed to approve ECO' });
@@ -728,10 +801,51 @@ ecosRouter.post('/:id/reject', requirePermission('ecos.reject'), async (req: Aut
         const eco = await prisma.eCO.update({
             where: { id: String(req.params.id) },
             data: { status: 'rejected' },
+            include: { 
+                requestedBy: { select: { email: true } },
+                product: true,
+            },
         });
+
+        // Send email notification (async)
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        sendECOStatusChangedEmail(
+            eco.requestedBy?.email ? [{ email: eco.requestedBy.email }] : [{ email: req.user!.email }],
+            {
+                ecoId: eco.id,
+                ecoTitle: eco.title,
+                productName: eco.product?.name,
+                productSku: eco.product?.sku,
+                status: 'rejected',
+                priority: eco.priority,
+                requestedBy: eco.requestedByName || 'Unknown',
+                link: `${frontendUrl}/ecos/${eco.id}`,
+                oldStatus: 'in-review',
+                changedBy: req.user!.email,
+            }
+        ).catch(err => console.error('Failed to send ECO rejection email:', err));
+
         res.json(eco);
     } catch (error) {
         res.status(500).json({ error: 'Failed to reject ECO' });
+    }
+});
+
+ecosRouter.delete('/:id', requirePermission('ecos.delete'), async (req: AuthRequest, res: Response) => {
+    try {
+        const id = String(req.params.id);
+        const existing = await prisma.eCO.findUnique({ where: { id } });
+        if (!existing) return res.status(404).json({ error: 'ECO not found' });
+
+        // Delete related records first
+        await prisma.eCOComment.deleteMany({ where: { ecoId: id } });
+        await prisma.auditLog.deleteMany({ where: { entityId: id, entityType: 'ECO' } });
+        
+        await prisma.eCO.delete({ where: { id } });
+        res.json({ message: 'ECO deleted successfully' });
+    } catch (error) {
+        console.error('Delete ECO error:', error);
+        res.status(500).json({ error: 'Failed to delete ECO' });
     }
 });
 
@@ -799,36 +913,317 @@ aiRouter.post('/chat', async (req: AuthRequest, res: Response) => {
         const { message } = req.body;
         if (!message) return res.status(400).json({ error: 'Message required' });
 
+        // Gather database context for AI
+        const [productsCount, bomsCount, ecosCount, workOrdersCount, suppliersCount] = await Promise.all([
+            prisma.product.count(),
+            prisma.bOM.count(),
+            prisma.eCO.count(),
+            prisma.workOrder.count(),
+            prisma.supplier.count()
+        ]);
+
+        // Get recent items for context
+        const [recentProducts, recentECOs, recentWorkOrders, activeSuppliers] = await Promise.all([
+            prisma.product.findMany({ take: 5, orderBy: { updatedAt: 'desc' }, select: { name: true, sku: true, status: true, category: true, cost: true, quantity: true } }),
+            prisma.eCO.findMany({ take: 5, orderBy: { updatedAt: 'desc' }, select: { title: true, status: true, priority: true, type: true, aiRiskScore: true } }),
+            prisma.workOrder.findMany({ take: 5, orderBy: { updatedAt: 'desc' }, include: { product: { select: { name: true, sku: true } } } }),
+            prisma.supplier.findMany({ take: 10, orderBy: { name: 'asc' }, select: { name: true, leadTimeDays: true, onTimeDeliveryRate: true, defectRate: true } })
+        ]);
+
+        // Get statistics
+        const pendingECOs = await prisma.eCO.count({ where: { status: { in: ['draft', 'in-review'] } } });
+        const activeWorkOrders = await prisma.workOrder.count({ where: { status: { in: ['planned', 'in_progress', 'in-progress'] } } });
+        const lowStockProducts = await prisma.product.findMany({ where: { quantity: { lt: 10 } }, select: { name: true, sku: true, quantity: true } });
+
+        const databaseContext = `
+DATABASE CONTEXT (Real-time data from FluxERP):
+- Total Products: ${productsCount}
+- Total BOMs: ${bomsCount}
+- Total ECOs: ${ecosCount} (${pendingECOs} pending approval)
+- Total Work Orders: ${workOrdersCount} (${activeWorkOrders} active)
+- Total Suppliers: ${suppliersCount}
+
+Recent Products:
+${recentProducts.map(p => `  - ${p.name} (${p.sku}): ${p.status}, Category: ${p.category}, Cost: $${p.cost}, Stock: ${p.quantity}`).join('\n')}
+
+Recent ECOs:
+${recentECOs.map(e => `  - ${e.title}: ${e.status}, Priority: ${e.priority}, Type: ${e.type}${e.aiRiskScore ? `, Risk: ${e.aiRiskScore}` : ''}`).join('\n')}
+
+Active Work Orders:
+${recentWorkOrders.map(w => `  - ${w.name || w.product.name} (${w.product.sku}): ${w.status}, Qty: ${w.quantity}, Progress: ${w.progress || 0}%`).join('\n')}
+
+Suppliers Performance:
+${activeSuppliers.map(s => `  - ${s.name}: Lead Time ${s.leadTimeDays} days, On-Time ${(s.onTimeDeliveryRate * 100).toFixed(1)}%, Defect Rate ${(s.defectRate * 100).toFixed(2)}%`).join('\n')}
+
+${lowStockProducts.length > 0 ? `\nLow Stock Alert (< 10 units):\n${lowStockProducts.map(p => `  - ${p.name} (${p.sku}): ${p.quantity} units`).join('\n')}` : ''}
+`;
+
         const { generateContent } = await import('./lib/gemini.js');
-        // In a real app, we would inject context from the database here
         try {
-            const response = await generateContent(`You are an intelligent PLM assistant for FluxERP. Answer this user query: ${message}`);
+            const systemPrompt = `You are an intelligent PLM (Product Lifecycle Management) assistant for FluxERP, a manufacturing ERP system. You have access to real-time database information.
+
+${databaseContext}
+
+Answer the user's question based on the database context above. Be helpful, concise, and provide actionable insights. If asked about specific data, reference the actual values from the database. If the user asks about something not in the context, let them know you can only access the summary data shown above.
+
+User query: ${message}`;
+
+            const response = await generateContent(systemPrompt);
             res.json({ response });
         } catch (aiError) {
-            // Fallback response when AI is unavailable
+            // Fallback response with database stats when AI is unavailable
             res.json({ 
-                response: "I'm sorry, the AI service is temporarily unavailable. Please check your Gemini API key configuration or try again later. In the meantime, you can navigate through the app to find the information you need."
+                response: `I'm sorry, the AI service is temporarily unavailable. However, here's a quick summary of your FluxERP data:
+
+📊 **System Overview**
+- Products: ${productsCount}
+- BOMs: ${bomsCount}
+- ECOs: ${ecosCount} (${pendingECOs} pending)
+- Work Orders: ${workOrdersCount} (${activeWorkOrders} active)
+- Suppliers: ${suppliersCount}
+
+${lowStockProducts.length > 0 ? `⚠️ **Low Stock Alert**: ${lowStockProducts.length} product(s) have less than 10 units in stock.` : ''}
+
+Please configure your Gemini API key for full AI capabilities, or navigate through the app to find the specific information you need.`
             });
         }
     } catch (error) {
+        console.error('AI chat error:', error);
         res.status(500).json({ error: 'AI chat failed' });
     }
 });
 
-// User/Role Routes (Basic Implementation)
+// User/Role Routes (Full Implementation)
 const usersRouter = Router();
 usersRouter.use(authenticate);
+
 usersRouter.get('/', requirePermission('users.view'), async (req, res) => {
-    const users = await prisma.user.findMany({ include: { role: true } });
+    const users = await prisma.user.findMany({ include: { role: true }, orderBy: { createdAt: 'desc' } });
     const safeUsers = users.map(u => { const { password, ...rest } = u; return rest; });
     res.json(safeUsers);
 });
 
+usersRouter.get('/:id', requirePermission('users.view'), async (req, res) => {
+    const user = await prisma.user.findUnique({
+        where: { id: String(req.params.id) },
+        include: { role: true }
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { password, ...safeUser } = user;
+    res.json(safeUser);
+});
+
+usersRouter.post('/', requirePermission('users.create'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { email, password, name, roleId, isActive = true } = req.body;
+        if (!email || !password || !name || !roleId) {
+            return res.status(400).json({ error: 'Email, password, name, and roleId are required' });
+        }
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Email already in use' });
+        }
+        const hashedPassword = await hashPassword(password);
+        const user = await prisma.user.create({
+            data: { email, password: hashedPassword, name, roleId, isActive },
+            include: { role: true }
+        });
+        const { password: _, ...safeUser } = user;
+        res.status(201).json(safeUser);
+    } catch (error) {
+        console.error('Create user error:', error);
+        res.status(500).json({ error: 'Failed to create user' });
+    }
+});
+
+usersRouter.put('/:id', requirePermission('users.edit'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { email, password, name, roleId, isActive } = req.body;
+        const userId = String(req.params.id);
+        const existingUser = await prisma.user.findUnique({ where: { id: userId } });
+        if (!existingUser) return res.status(404).json({ error: 'User not found' });
+        
+        if (email && email !== existingUser.email) {
+            const emailExists = await prisma.user.findUnique({ where: { email } });
+            if (emailExists) return res.status(400).json({ error: 'Email already in use' });
+        }
+        
+        const updateData: any = {};
+        if (email) updateData.email = email;
+        if (name) updateData.name = name;
+        if (roleId) updateData.roleId = roleId;
+        if (typeof isActive === 'boolean') updateData.isActive = isActive;
+        if (password) updateData.password = await hashPassword(password);
+        
+        const user = await prisma.user.update({
+            where: { id: userId },
+            data: updateData,
+            include: { role: true }
+        });
+        const { password: _, ...safeUser } = user;
+        res.json(safeUser);
+    } catch (error) {
+        console.error('Update user error:', error);
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+usersRouter.delete('/:id', requirePermission('users.delete'), async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = String(req.params.id);
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        await prisma.user.delete({ where: { id: userId } });
+        res.json({ message: 'User deleted successfully' });
+    } catch (error: any) {
+        console.error('Delete user error:', error);
+        if (error.code === 'P2003') {
+            return res.status(400).json({ error: 'Cannot delete user with associated records' });
+        }
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
+});
+
 const rolesRouter = Router();
 rolesRouter.use(authenticate);
+
 rolesRouter.get('/', async (req, res) => {
-    const roles = await prisma.iAMRole.findMany();
-    res.json(roles);
+    const roles = await prisma.iAMRole.findMany({
+        include: { _count: { select: { users: true } } },
+        orderBy: { name: 'asc' }
+    });
+    const rolesWithCount = roles.map(role => ({ ...role, userCount: role._count.users }));
+    res.json(rolesWithCount);
+});
+
+rolesRouter.get('/:id', async (req, res) => {
+    const role = await prisma.iAMRole.findUnique({
+        where: { id: String(req.params.id) },
+        include: { _count: { select: { users: true } } }
+    });
+    if (!role) return res.status(404).json({ error: 'Role not found' });
+    res.json({ ...role, userCount: (role as any)._count.users });
+});
+
+rolesRouter.post('/', requirePermission('roles.create'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { name, description, permissions = [] } = req.body;
+        if (!name || !description) {
+            return res.status(400).json({ error: 'Name and description are required' });
+        }
+        const existingRole = await prisma.iAMRole.findUnique({ where: { name } });
+        if (existingRole) return res.status(400).json({ error: 'Role name already exists' });
+        
+        const role = await prisma.iAMRole.create({
+            data: { name, description, permissions: JSON.stringify(permissions), isSystem: false }
+        });
+        res.status(201).json({ ...role, userCount: 0 });
+    } catch (error) {
+        console.error('Create role error:', error);
+        res.status(500).json({ error: 'Failed to create role' });
+    }
+});
+
+rolesRouter.put('/:id', requirePermission('roles.edit'), async (req: AuthRequest, res: Response) => {
+    try {
+        const { name, description, permissions } = req.body;
+        const roleId = String(req.params.id);
+        const existingRole = await prisma.iAMRole.findUnique({ where: { id: roleId } });
+        if (!existingRole) return res.status(404).json({ error: 'Role not found' });
+        
+        // Allow editing permissions for system roles, but not name/description
+        const updateData: any = {};
+        if (!existingRole.isSystem) {
+            if (name && name !== existingRole.name) {
+                const nameExists = await prisma.iAMRole.findUnique({ where: { name } });
+                if (nameExists) return res.status(400).json({ error: 'Role name already exists' });
+                updateData.name = name;
+            }
+            if (description) updateData.description = description;
+        }
+        if (permissions) updateData.permissions = JSON.stringify(permissions);
+        
+        const role = await prisma.iAMRole.update({
+            where: { id: roleId },
+            data: updateData,
+            include: { _count: { select: { users: true } } }
+        });
+        res.json({ ...role, userCount: (role as any)._count.users });
+    } catch (error) {
+        console.error('Update role error:', error);
+        res.status(500).json({ error: 'Failed to update role' });
+    }
+});
+
+rolesRouter.delete('/:id', requirePermission('roles.delete'), async (req: AuthRequest, res: Response) => {
+    try {
+        const roleId = String(req.params.id);
+        const role = await prisma.iAMRole.findUnique({
+            where: { id: roleId },
+            include: { _count: { select: { users: true } } }
+        });
+        if (!role) return res.status(404).json({ error: 'Role not found' });
+        if (role.isSystem) return res.status(400).json({ error: 'Cannot delete system roles' });
+        if ((role as any)._count.users > 0) return res.status(400).json({ error: 'Cannot delete role with assigned users' });
+        
+        await prisma.iAMRole.delete({ where: { id: roleId } });
+        res.json({ message: 'Role deleted successfully' });
+    } catch (error) {
+        console.error('Delete role error:', error);
+        res.status(500).json({ error: 'Failed to delete role' });
+    }
+});
+
+// Refresh system roles with default permissions (useful after updates)
+// This endpoint only requires authentication (no specific permission) since it restores defaults
+rolesRouter.post('/refresh-defaults', async (req: AuthRequest, res: Response) => {
+    try {
+        const defaultPermissions: Record<string, string[]> = {
+            'role-admin': [
+                'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
+                'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
+                'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
+                'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
+                'reports.view', 'reports.export',
+                'settings.view', 'settings.edit', 'settings.iam',
+                'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles',
+                'roles.view', 'roles.create', 'roles.edit', 'roles.delete'
+            ],
+            'role-engineering': [
+                'products.view', 'products.create', 'products.edit',
+                'boms.view', 'boms.create', 'boms.edit', 'boms.canvas',
+                'ecos.view', 'ecos.create', 'ecos.edit',
+                'workorders.view', 'workorders.create', 'workorders.edit',
+                'reports.view'
+            ],
+            'role-approver': [
+                'products.view',
+                'boms.view',
+                'ecos.view', 'ecos.review', 'ecos.approve', 'ecos.reject',
+                'workorders.view',
+                'reports.view'
+            ],
+            'role-operations': [
+                'products.view',
+                'boms.view',
+                'ecos.view', 'ecos.submit',
+                'workorders.view', 'workorders.create', 'workorders.edit',
+                'reports.view'
+            ]
+        };
+        
+        for (const [roleId, permissions] of Object.entries(defaultPermissions)) {
+            await prisma.iAMRole.updateMany({
+                where: { id: roleId },
+                data: { permissions: JSON.stringify(permissions) }
+            });
+        }
+        
+        res.json({ message: 'System roles refreshed with default permissions' });
+    } catch (error) {
+        console.error('Refresh roles error:', error);
+        res.status(500).json({ error: 'Failed to refresh system roles' });
+    }
 });
 
 // Work Orders Routes
@@ -900,6 +1295,24 @@ workOrdersRouter.post('/', requirePermission('workorders.create'), async (req: A
             },
         });
 
+        // Send email notification (async)
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+        sendWorkOrderCreatedEmail(
+            [{ email: req.user!.email }],
+            {
+                workOrderId: workOrder.id,
+                workOrderName: workOrder.name || undefined,
+                productName: workOrder.product.name,
+                productSku: workOrder.product.sku,
+                status: workOrder.status,
+                priority: workOrder.priority,
+                quantity: workOrder.quantity,
+                scheduledStart: workOrder.scheduledStart?.toISOString(),
+                scheduledEnd: workOrder.scheduledEnd?.toISOString(),
+                link: `${frontendUrl}/work-orders/${workOrder.id}`,
+            }
+        ).catch(err => console.error('Failed to send work order created email:', err));
+
         res.status(201).json(workOrder);
     } catch (error) {
         console.error('Create work order error:', error);
@@ -911,6 +1324,10 @@ workOrdersRouter.put('/:id', requirePermission('workorders.edit'), async (req: A
     try {
         const id = String(req.params.id);
         const { name, status, priority, quantity, progress, scheduledStart, scheduledEnd } = req.body;
+
+        // Get old status for notification
+        const existing = await prisma.workOrder.findUnique({ where: { id } });
+        const oldStatus = existing?.status;
 
         const updateData: any = {};
         if (name !== undefined) updateData.name = name;
@@ -930,6 +1347,26 @@ workOrdersRouter.put('/:id', requirePermission('workorders.edit'), async (req: A
             },
         });
 
+        // Send email notification if status changed (async)
+        if (status && oldStatus && status !== oldStatus) {
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+            sendWorkOrderStatusChangedEmail(
+                [{ email: req.user!.email }],
+                {
+                    workOrderId: workOrder.id,
+                    workOrderName: workOrder.name || undefined,
+                    productName: workOrder.product.name,
+                    productSku: workOrder.product.sku,
+                    status: workOrder.status,
+                    priority: workOrder.priority,
+                    quantity: workOrder.quantity,
+                    link: `${frontendUrl}/work-orders/${workOrder.id}`,
+                    oldStatus,
+                    changedBy: req.user!.email,
+                }
+            ).catch(err => console.error('Failed to send work order status change email:', err));
+        }
+
         res.json(workOrder);
     } catch (error) {
         console.error('Update work order error:', error);
@@ -942,6 +1379,10 @@ workOrdersRouter.patch('/:id', requirePermission('workorders.edit'), async (req:
     try {
         const id = String(req.params.id);
         const { status, progress } = req.body;
+
+        // Get old status for notification
+        const existing = await prisma.workOrder.findUnique({ where: { id } });
+        const oldStatus = existing?.status;
 
         const updateData: any = {};
         if (status) updateData.status = status;
@@ -956,10 +1397,55 @@ workOrdersRouter.patch('/:id', requirePermission('workorders.edit'), async (req:
             },
         });
 
+        // Send email notification if status changed (async)
+        if (status && oldStatus && status !== oldStatus) {
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+            sendWorkOrderStatusChangedEmail(
+                [{ email: req.user!.email }],
+                {
+                    workOrderId: workOrder.id,
+                    workOrderName: workOrder.name || undefined,
+                    productName: workOrder.product.name,
+                    productSku: workOrder.product.sku,
+                    status: workOrder.status,
+                    priority: workOrder.priority,
+                    quantity: workOrder.quantity,
+                    link: `${frontendUrl}/work-orders/${workOrder.id}`,
+                    oldStatus,
+                    changedBy: req.user!.email,
+                }
+            ).catch(err => console.error('Failed to send work order status change email:', err));
+        }
+
         res.json(workOrder);
     } catch (error) {
         console.error('Patch work order error:', error);
         res.status(500).json({ error: 'Failed to update work order' });
+    }
+});
+
+workOrdersRouter.delete('/:id', requirePermission('workorders.delete'), async (req: AuthRequest, res: Response) => {
+    try {
+        const id = String(req.params.id);
+        
+        // Check if work order exists
+        const existing = await prisma.workOrder.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({ error: 'Work order not found' });
+        }
+        
+        // Delete related audit logs first
+        await prisma.auditLog.deleteMany({
+            where: { entityId: id, entityType: 'WorkOrder' }
+        });
+        
+        // Delete the work order
+        await prisma.workOrder.delete({ where: { id } });
+        
+        res.json({ message: 'Work order deleted successfully' });
+    } catch (error) {
+        console.error('Delete work order error:', error);
+        res.status(500).json({ error: 'Failed to delete work order' });
     }
 });
 
@@ -1006,20 +1492,27 @@ suppliersRouter.get('/:id', requirePermission('products.view'), async (req: Auth
 
 suppliersRouter.post('/', requirePermission('products.create'), async (req: AuthRequest, res: Response) => {
     try {
-        const { name, leadTimeDays, defectRate, onTimeDeliveryRate, contactPerson, email, phone, address } = req.body;
+        const { name, leadTimeDays, defectRate, onTimeDeliveryRate, contactPerson, email, phone, address, rating, isActive } = req.body;
 
         if (!name) {
             return res.status(400).json({ error: 'Name is required' });
         }
 
-        const supplier = await prisma.supplier.create({
-            data: {
-                name,
-                leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : 14,
-                defectRate: defectRate ? parseFloat(defectRate) : 0,
-                onTimeDeliveryRate: onTimeDeliveryRate ? parseFloat(onTimeDeliveryRate) : 0.95
-            }
-        });
+        // Use type assertion to bypass TypeScript until Prisma client is regenerated
+        const supplierData: any = {
+            name,
+            contactPerson: contactPerson || null,
+            email: email || null,
+            phone: phone || null,
+            address: address || null,
+            leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : 14,
+            defectRate: defectRate ? parseFloat(defectRate) : 0,
+            onTimeDeliveryRate: onTimeDeliveryRate ? parseFloat(onTimeDeliveryRate) : 0.95,
+            rating: rating ? parseFloat(rating) : null,
+            isActive: isActive !== undefined ? isActive : true
+        };
+
+        const supplier = await prisma.supplier.create({ data: supplierData });
 
         res.status(201).json(supplier);
     } catch (error) {
@@ -1031,19 +1524,28 @@ suppliersRouter.post('/', requirePermission('products.create'), async (req: Auth
 suppliersRouter.put('/:id', requirePermission('products.edit'), async (req: AuthRequest, res: Response) => {
     try {
         const id = String(req.params.id);
-        const { name, leadTimeDays, defectRate, onTimeDeliveryRate } = req.body;
+        const { name, leadTimeDays, defectRate, onTimeDeliveryRate, contactPerson, email, phone, address, rating, isActive } = req.body;
 
         const existing = await prisma.supplier.findUnique({ where: { id } });
         if (!existing) return res.status(404).json({ error: 'Supplier not found' });
 
+        // Use type assertion to bypass TypeScript until Prisma client is regenerated
+        const updateData: any = {
+            ...(name !== undefined && { name }),
+            ...(contactPerson !== undefined && { contactPerson }),
+            ...(email !== undefined && { email }),
+            ...(phone !== undefined && { phone }),
+            ...(address !== undefined && { address }),
+            ...(leadTimeDays !== undefined && { leadTimeDays: parseInt(leadTimeDays) }),
+            ...(defectRate !== undefined && { defectRate: parseFloat(defectRate) }),
+            ...(onTimeDeliveryRate !== undefined && { onTimeDeliveryRate: parseFloat(onTimeDeliveryRate) }),
+            ...(rating !== undefined && { rating: rating !== null ? parseFloat(rating) : null }),
+            ...(isActive !== undefined && { isActive })
+        };
+
         const supplier = await prisma.supplier.update({
             where: { id },
-            data: {
-                ...(name && { name }),
-                ...(leadTimeDays !== undefined && { leadTimeDays: parseInt(leadTimeDays) }),
-                ...(defectRate !== undefined && { defectRate: parseFloat(defectRate) }),
-                ...(onTimeDeliveryRate !== undefined && { onTimeDeliveryRate: parseFloat(onTimeDeliveryRate) })
-            }
+            data: updateData
         });
 
         res.json(supplier);
@@ -1187,10 +1689,47 @@ analyticsRouter.get('/dashboard', requirePermission('reports.view'), async (req:
             }
         });
 
+        // Fetch recent audit logs for activity feed
+        const recentActivity = await prisma.auditLog.findMany({
+            take: 10,
+            orderBy: { timestamp: 'desc' },
+            include: {
+                user: { select: { name: true } }
+            }
+        });
+
+        // Get AI insights based on real data
+        const pendingECOs = await prisma.eCO.findMany({
+            where: { status: { in: ['pending', 'draft'] } },
+            include: { product: { select: { name: true } } },
+            take: 3
+        });
+
+        const delayedWorkOrders = await prisma.workOrder.findMany({
+            where: {
+                status: { notIn: ['completed', 'cancelled'] },
+                scheduledEnd: { lt: new Date() }
+            },
+            include: { product: { select: { name: true } } },
+            take: 3
+        });
+
+        const lowStockProducts = await prisma.product.findMany({
+            where: { quantity: { lt: 10 } },
+            orderBy: { quantity: 'asc' },
+            take: 3
+        });
+
         res.json({
             counts: { products, boms, ecos, workOrders, suppliers },
             recentECOs,
-            recentWorkOrders
+            recentWorkOrders,
+            recentActivity,
+            insights: {
+                pendingECOs,
+                delayedWorkOrders,
+                lowStockProducts
+            }
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch dashboard data' });
@@ -1209,6 +1748,16 @@ app.use('/api/roles', rolesRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/reports', analyticsRouter);
+app.use('/api/csv', csvRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/jobs', jobsRouter);
+
+// Start background job workers if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+  startWorkers().catch(err => {
+    console.warn('Failed to start background workers:', err.message);
+  });
+}
 
 app.use((req: Request, res: Response) => {
     res.status(404).json({ error: 'Route not found' });
@@ -1222,11 +1771,14 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     });
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 FluxERP Backend Server running on port ${PORT}`);
-    console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-    console.log(`💚 Health check: http://localhost:${PORT}/health`);
-});
+// Only start the server if not in test mode
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, () => {
+        console.log(`🚀 FluxERP Backend Server running on port ${PORT}`);
+        console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+        console.log(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+        console.log(`💚 Health check: http://localhost:${PORT}/health`);
+    });
+}
 
 export default app;

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Tabs } from '@/components/ui/Tabs';
-import { ArrowLeft, Edit, Trash2, Mail, Phone, MapPin } from 'lucide-react';
+import { ArrowLeft, Edit, Trash2, Mail, Phone, MapPin, User } from 'lucide-react';
 import Link from 'next/link';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -16,6 +16,7 @@ export default function SupplierDetailPage() {
     const router = useRouter();
     const [supplier, setSupplier] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -35,6 +36,33 @@ export default function SupplierDetailPage() {
             });
     }, [params.id]);
 
+    const handleDelete = async () => {
+        if (!confirm('Are you sure you want to delete this supplier? This action cannot be undone.')) {
+            return;
+        }
+
+        setDeleting(true);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/suppliers/${params.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                router.push('/suppliers');
+            } else {
+                const error = await response.json();
+                alert(error.error || 'Failed to delete supplier');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Error deleting supplier');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
     if (loading) {
         return (
             <AppLayout>
@@ -53,15 +81,10 @@ export default function SupplierDetailPage() {
         );
     }
 
-    // Mock performance data
-    const performanceData = [
-        { month: 'Jan', onTime: 95, defectRate: 2 },
-        { month: 'Feb', onTime: 92, defectRate: 3 },
-        { month: 'Mar', onTime: 98, defectRate: 1 },
-        { month: 'Apr', onTime: 94, defectRate: 2 },
-        { month: 'May', onTime: 96, defectRate: 1.5 },
-        { month: 'Jun', onTime: 97, defectRate: 1 }
-    ];
+    // Calculate performance metrics from defects
+    const totalDefects = supplier.defects?.length || 0;
+    const criticalDefects = supplier.defects?.filter((d: any) => d.severity === 'critical').length || 0;
+    const majorDefects = supplier.defects?.filter((d: any) => d.severity === 'major').length || 0;
 
     const tabs = [
         {
@@ -76,32 +99,34 @@ export default function SupplierDetailPage() {
                                 <dd className="mt-1 text-sm text-gray-900">SUP-{supplier.id.substring(0, 8).toUpperCase()}</dd>
                             </div>
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">Contact Person</dt>
-                                <dd className="mt-1 text-sm text-gray-900">{supplier.contactPerson || 'N/A'}</dd>
+                                <dt className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                                    <User className="w-4 h-4" /> Contact Person
+                                </dt>
+                                <dd className="mt-1 text-sm text-gray-900">{supplier.contactPerson || 'Not specified'}</dd>
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500 flex items-center gap-2">
                                     <Mail className="w-4 h-4" /> Email
                                 </dt>
-                                <dd className="mt-1 text-sm text-gray-900">{supplier.email}</dd>
+                                <dd className="mt-1 text-sm text-gray-900">{supplier.email || 'Not specified'}</dd>
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500 flex items-center gap-2">
                                     <Phone className="w-4 h-4" /> Phone
                                 </dt>
-                                <dd className="mt-1 text-sm text-gray-900">{supplier.phone}</dd>
+                                <dd className="mt-1 text-sm text-gray-900">{supplier.phone || 'Not specified'}</dd>
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500 flex items-center gap-2">
                                     <MapPin className="w-4 h-4" /> Address
                                 </dt>
-                                <dd className="mt-1 text-sm text-gray-900">{supplier.address || 'N/A'}</dd>
+                                <dd className="mt-1 text-sm text-gray-900">{supplier.address || 'Not specified'}</dd>
                             </div>
                             <div>
                                 <dt className="text-sm font-medium text-gray-500">Status</dt>
                                 <dd className="mt-1">
-                                    <Badge variant={supplier.isActive ? 'success' : 'error'}>
-                                        {supplier.isActive ? 'Active' : 'Inactive'}
+                                    <Badge variant={supplier.isActive !== false ? 'success' : 'error'}>
+                                        {supplier.isActive !== false ? 'Active' : 'Inactive'}
                                     </Badge>
                                 </dd>
                             </div>
@@ -113,26 +138,32 @@ export default function SupplierDetailPage() {
                             <div>
                                 <div className="flex justify-between items-center mb-2">
                                     <span className="text-sm font-medium text-gray-700">Overall Rating</span>
-                                    <span className="text-2xl font-bold text-[#8D6E63]">{supplier.rating?.toFixed(1) || 'N/A'} ⭐</span>
+                                    <span className="text-2xl font-bold text-[#8D6E63]">
+                                        {supplier.rating !== null && supplier.rating !== undefined ? `${supplier.rating.toFixed(1)} ⭐` : 'N/A'}
+                                    </span>
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                                 <div>
                                     <p className="text-sm text-gray-500">Lead Time</p>
-                                    <p className="text-xl font-bold text-gray-900">{supplier.leadTime || 0} days</p>
+                                    <p className="text-xl font-bold text-gray-900">{supplier.leadTimeDays || 0} days</p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-500">On-Time Delivery</p>
-                                    <p className="text-xl font-bold text-green-600">{supplier.onTimeDelivery || 95}%</p>
+                                    <p className="text-xl font-bold text-green-600">
+                                        {((supplier.onTimeDeliveryRate || 0) * 100).toFixed(1)}%
+                                    </p>
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-500">Defect Rate</p>
-                                    <p className="text-xl font-bold text-red-600">{supplier.defectRate || 2}%</p>
+                                    <p className="text-xl font-bold text-red-600">
+                                        {((supplier.defectRate || 0) * 100).toFixed(2)}%
+                                    </p>
                                 </div>
                                 <div>
-                                    <p className="text-sm text-gray-500">Total Orders</p>
-                                    <p className="text-xl font-bold text-gray-900">{supplier.totalOrders || 0}</p>
+                                    <p className="text-sm text-gray-500">Total Defects</p>
+                                    <p className="text-xl font-bold text-gray-900">{totalDefects}</p>
                                 </div>
                             </div>
                         </div>
@@ -141,73 +172,67 @@ export default function SupplierDetailPage() {
             )
         },
         {
-            id: 'performance',
-            label: 'Performance',
+            id: 'defects',
+            label: 'Defects',
             content: (
-                <Card title="Performance Trends">
-                    <div className="space-y-8">
-                        <div>
-                            <h3 className="text-sm font-medium text-gray-700 mb-4">On-Time Delivery (%)</h3>
-                            <ResponsiveContainer width="100%" height={250}>
-                                <BarChart data={performanceData}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="month" />
-                                    <YAxis />
-                                    <Tooltip />
-                                    <Bar dataKey="onTime" fill="#8D6E63" />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-
-                        <div>
-                            <h3 className="text-sm font-medium text-gray-700 mb-4">Defect Rate (%)</h3>
-                            <ResponsiveContainer width="100%" height={250}>
-                                <BarChart data={performanceData}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="month" />
-                                    <YAxis />
-                                    <Tooltip />
-                                    <Bar dataKey="defectRate" fill="#D32F2F" />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                </Card>
-            )
-        },
-        {
-            id: 'products',
-            label: 'Products',
-            content: (
-                <Card>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">SKU</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lead Time</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {supplier.products && supplier.products.length > 0 ? (
-                                    supplier.products.map((product: any) => (
-                                        <tr key={product.id}>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{product.name}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.sku}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${product.price?.toFixed(2)}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.leadTime || supplier.leadTime} days</td>
-                                        </tr>
-                                    ))
-                                ) : (
+                <Card title="Defect History">
+                    {supplier.defects && supplier.defects.length > 0 ? (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead className="bg-gray-50">
                                     <tr>
-                                        <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">No products associated</td>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Severity</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Discovered</th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                    {supplier.defects.map((defect: any) => (
+                                        <tr key={defect.id}>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 capitalize">{defect.type}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <Badge variant={
+                                                    defect.severity === 'critical' ? 'error' :
+                                                    defect.severity === 'major' ? 'warning' : 'default'
+                                                }>
+                                                    {defect.severity}
+                                                </Badge>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">{defect.description}</td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {defect.product?.name || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {new Date(defect.discoveredAt).toLocaleDateString()}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+
+                            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                                <h4 className="text-sm font-medium text-gray-700 mb-2">Defect Summary</h4>
+                                <div className="flex gap-6">
+                                    <div>
+                                        <span className="text-red-600 font-bold">{criticalDefects}</span>
+                                        <span className="text-sm text-gray-500 ml-1">Critical</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-yellow-600 font-bold">{majorDefects}</span>
+                                        <span className="text-sm text-gray-500 ml-1">Major</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-600 font-bold">{totalDefects - criticalDefects - majorDefects}</span>
+                                        <span className="text-sm text-gray-500 ml-1">Minor</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-center text-gray-500 py-8">No defects recorded for this supplier.</p>
+                    )}
                 </Card>
             )
         }
@@ -227,8 +252,12 @@ export default function SupplierDetailPage() {
                     </div>
 
                     <div className="flex gap-3">
-                        <Button variant="secondary" icon={Edit}>Edit</Button>
-                        <Button variant="danger" icon={Trash2}>Delete</Button>
+                        <Button variant="secondary" icon={Edit} onClick={() => router.push(`/suppliers/${params.id}/edit`)}>
+                            Edit
+                        </Button>
+                        <Button variant="danger" icon={Trash2} onClick={handleDelete} isLoading={deleting}>
+                            Delete
+                        </Button>
                     </div>
                 </div>
             </div>

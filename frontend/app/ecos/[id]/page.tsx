@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Tabs } from '@/components/ui/Tabs';
-import { ArrowLeft, CheckCircle, XCircle, Play, AlertTriangle, User, Calendar, MessageSquare, Send, Edit, Clock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Play, AlertTriangle, User, Calendar, MessageSquare, Send, Edit, Clock, Sparkles, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ECODetailPage() {
@@ -17,6 +17,7 @@ export default function ECODetailPage() {
     const [versions, setVersions] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
+    const [analyzingRisk, setAnalyzingRisk] = useState(false);
     const [newComment, setNewComment] = useState('');
     const [commentLoading, setCommentLoading] = useState(false);
 
@@ -52,6 +53,73 @@ export default function ECODetailPage() {
     useEffect(() => {
         fetchECO();
     }, [params.id]);
+
+    const handleAnalyzeRisk = async () => {
+        if (!eco) return;
+        
+        setAnalyzingRisk(true);
+        try {
+            const token = localStorage.getItem('token');
+            
+            // Get risk analysis from AI
+            const riskRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ai/risk-score`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    changeRequest: {
+                        title: eco.title,
+                        description: eco.description,
+                        reason: eco.reason,
+                        priority: eco.priority,
+                        changes: (() => {
+                            try {
+                                return typeof eco.proposedChanges === 'string' 
+                                    ? JSON.parse(eco.proposedChanges) 
+                                    : eco.proposedChanges;
+                            } catch {
+                                return [];
+                            }
+                        })()
+                    }
+                })
+            });
+
+            if (!riskRes.ok) throw new Error('Risk analysis failed');
+            const riskData = await riskRes.json();
+            
+            // Update the ECO with risk analysis - this will create a new version
+            const updateRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ecos/${params.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    impactAnalysis: riskData
+                })
+            });
+
+            if (!updateRes.ok) throw new Error('Failed to save risk analysis');
+            
+            const newEco = await updateRes.json();
+            
+            // If a new version was created, navigate to it
+            if (newEco.id !== eco.id) {
+                router.push(`/ecos/${newEco.id}`);
+            } else {
+                // Refresh current ECO data
+                fetchECO();
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Failed to analyze risk. Please try again.');
+        } finally {
+            setAnalyzingRisk(false);
+        }
+    };
 
     const handleStatusChange = async (newStatus: string) => {
         if (!confirm(`Are you sure you want to change status to ${newStatus}?`)) return;
@@ -234,20 +302,42 @@ export default function ECODetailPage() {
                                             return null;
                                         }
                                     })()}
+                                    
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        icon={RefreshCw}
+                                        onClick={handleAnalyzeRisk}
+                                        isLoading={analyzingRisk}
+                                        className="w-full"
+                                    >
+                                        Re-analyze Risk
+                                    </Button>
                                 </div>
                             ) : (
-                                <div className="bg-yellow-50 border border-yellow-100 rounded-md p-4">
-                                    <div className="flex">
-                                        <div className="flex-shrink-0">
-                                            <AlertTriangle className="h-5 w-5 text-yellow-400" aria-hidden="true" />
-                                        </div>
-                                        <div className="ml-3">
-                                            <h3 className="text-sm font-medium text-yellow-800">No AI Analysis</h3>
-                                            <div className="mt-2 text-sm text-yellow-700">
-                                                <p>Risk analysis was not performed for this ECO. Edit the ECO and click "Analyze Risk" to generate AI insights.</p>
+                                <div className="space-y-4">
+                                    <div className="bg-yellow-50 border border-yellow-100 rounded-md p-4">
+                                        <div className="flex">
+                                            <div className="flex-shrink-0">
+                                                <AlertTriangle className="h-5 w-5 text-yellow-400" aria-hidden="true" />
+                                            </div>
+                                            <div className="ml-3">
+                                                <h3 className="text-sm font-medium text-yellow-800">No AI Analysis</h3>
+                                                <div className="mt-2 text-sm text-yellow-700">
+                                                    <p>Risk analysis has not been performed for this ECO.</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
+                                    
+                                    <Button
+                                        icon={Sparkles}
+                                        onClick={handleAnalyzeRisk}
+                                        isLoading={analyzingRisk}
+                                        className="w-full bg-gradient-to-r from-[#8D6E63] to-[#6D4C41]"
+                                    >
+                                        Analyze Risk
+                                    </Button>
                                 </div>
                             )}
                         </Card>

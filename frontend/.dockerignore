@@ -1,0 +1,89 @@
+# FluxERP Frontend - Docker Ignore
+
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js build output
+.next/
+out/
+build/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Environment files (will be passed via docker-compose)
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+jest.config.*
+cypress/
+e2e/
+
+# Logs
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*
+.docker/
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# Storybook
+.storybook/
+storybook-static/
+
+# Temporary
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
