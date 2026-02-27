@@ -5,7 +5,7 @@ import { validateBody, validateQuery, validateParams } from '../middleware/valid
 import { authenticate, requirePermission } from '../middleware/auth.middleware.js';
 import { catchAsync } from '../middleware/error.middleware.js';
 import { createProductSchema, updateProductSchema, productQuerySchema } from '../validators/product.validator.js';
-import { uuidSchema } from '../validators/common.validator.js';
+import { idParamSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -61,7 +61,7 @@ router.get('/stats',
  */
 router.get('/:id',
     requirePermission('products.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const product = await productService.findById(req.params.id);
         res.json(successResponse(product));
@@ -88,7 +88,7 @@ router.post('/',
  */
 router.put('/:id',
     requirePermission('products.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(updateProductSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -103,7 +103,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requirePermission('products.delete'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await productService.delete(req.params.id, authReq.user!.userId);

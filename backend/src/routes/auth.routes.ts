@@ -5,7 +5,7 @@ import { validateBody, validateQuery, validateParams } from '../middleware/valid
 import { authenticate, requirePermission } from '../middleware/auth.middleware.js';
 import { catchAsync } from '../middleware/error.middleware.js';
 import { loginSchema, registerSchema, changePasswordSchema, profileUpdateSchema } from '../validators/auth.validator.js';
-import { paginationSchema, uuidSchema } from '../validators/common.validator.js';
+import { paginationSchema, idParamSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -112,7 +112,7 @@ router.get('/users',
 router.get('/users/:id',
     authenticate,
     requirePermission('users.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const user = await userService.findById(req.params.id);
         res.json(successResponse(user));
@@ -126,7 +126,7 @@ router.get('/users/:id',
 router.put('/users/:id',
     authenticate,
     requirePermission('users.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         const user = await userService.update(req.params.id, req.body, authReq.user!.userId);
@@ -141,7 +141,7 @@ router.put('/users/:id',
 router.post('/users/:id/deactivate',
     authenticate,
     requirePermission('users.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await userService.deactivate(req.params.id, authReq.user!.userId);
@@ -156,7 +156,7 @@ router.post('/users/:id/deactivate',
 router.post('/users/:id/reactivate',
     authenticate,
     requirePermission('users.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await userService.reactivate(req.params.id, authReq.user!.userId);

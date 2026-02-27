@@ -7,9 +7,12 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Table } from '@/components/ui/Table';
 import { Plus, Search } from 'lucide-react';
+import { usePermissions } from '@/lib/permissions';
+import AccessDenied from '@/components/ui/AccessDenied';
 
 export default function SuppliersPage() {
-    const [suppliers, setSuppliers] = useState([]);
+    const { can, loading: permLoading } = usePermissions();
+    const [suppliers, setSuppliers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const router = useRouter();
@@ -26,8 +29,9 @@ export default function SuppliersPage() {
         })
             .then(res => res.json())
             .then(data => {
-                if (Array.isArray(data)) {
-                    setSuppliers(data);
+                const items = Array.isArray(data) ? data : (data?.data || []);
+                if (Array.isArray(items)) {
+                    setSuppliers(items);
                 } else {
                     console.error('Expected array of suppliers but got:', data);
                     setSuppliers([]);
@@ -111,7 +115,10 @@ export default function SuppliersPage() {
             )
         }
     ];
-
+    // Permission check (after all hooks)
+    if (!permLoading && !can('suppliers.read')) {
+        return <AccessDenied feature="Suppliers" />;
+    }
     return (
         <AppLayout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">

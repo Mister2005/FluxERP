@@ -38,7 +38,7 @@ export const bomOperationSchema = z.object({
 export const createBOMSchema = z.object({
     name: requiredString(2, 200),
     productId: uuidSchema,
-    version: z.string().max(20).default('1.0'),
+    version: z.string().max(20).default('1'),
     status: bomStatusEnum.default('draft'),
     components: z.array(bomComponentSchema).min(1, 'At least one component is required'),
     operations: z.array(bomOperationSchema).optional(),

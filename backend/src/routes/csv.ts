@@ -187,7 +187,7 @@ router.get(
 router.post(
   '/import/products',
   authenticate,
-  requirePermission('products:write'),
+  requirePermission('products.write'),
   upload.single('file'),
   async (req: Request, res: Response): Promise<void> => {
     try {
@@ -232,7 +232,7 @@ router.post(
 router.post(
   '/import/boms',
   authenticate,
-  requirePermission('boms:write'),
+  requirePermission('boms.write'),
   upload.single('file'),
   async (req: Request, res: Response): Promise<void> => {
     try {

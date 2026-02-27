@@ -46,7 +46,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
 }
 
 export async function hasPermission(userId: string, permission: string): Promise<boolean> {
-    const { prisma } = await import('./db');
+    const { prisma } = await import('./db.js');
     const user = await prisma.user.findUnique({
         where: { id: userId },
         include: { role: true },

@@ -11,6 +11,8 @@ import DataManagementPanel from '@/components/data/CSVManagement';
 import EmailSettings from '@/components/settings/EmailSettings';
 import JobMonitoringPanel from '@/components/settings/JobMonitoringPanel';
 import { Plus, Edit, Trash2, Shield, Users, Settings as SettingsIcon, Database, Mail, Activity, X } from 'lucide-react';
+import { usePermissions } from '@/lib/permissions';
+import AccessDenied from '@/components/ui/AccessDenied';
 
 interface User {
     id: string;
@@ -51,6 +53,7 @@ function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose:
 }
 
 export default function SettingsPage() {
+    const { can, loading: permLoading } = usePermissions();
     const [users, setUsers] = useState<User[]>([]);
     const [roles, setRoles] = useState<Role[]>([]);
     const [loading, setLoading] = useState(true);
@@ -68,13 +71,15 @@ export default function SettingsPage() {
     const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [] as string[] });
 
     const availablePermissions = [
-        'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
-        'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
-        'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
-        'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
-        'reports.view', 'reports.export',
-        'settings.view', 'settings.edit', 'settings.iam',
-        'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles'
+        'products.read', 'products.write', 'products.delete', 'products.export',
+        'boms.read', 'boms.write', 'boms.delete', 'boms.canvas',
+        'ecos.read', 'ecos.write', 'ecos.delete', 'ecos.approve',
+        'workorders.read', 'workorders.write', 'workorders.delete',
+        'reports.read', 'reports.export',
+        'settings.read', 'settings.write', 'settings.iam',
+        'users.read', 'users.write', 'users.delete', 'users.roles',
+        'roles.read', 'roles.write', 'roles.delete',
+        'suppliers.read', 'suppliers.write', 'suppliers.delete'
     ];
 
     const fetchData = async () => {
@@ -97,8 +102,11 @@ export default function SettingsPage() {
             const usersData = await usersRes.json();
             const rolesData = await rolesRes.json();
             
-            setUsers(Array.isArray(usersData) ? usersData : []);
-            setRoles(Array.isArray(rolesData) ? rolesData : []);
+            const usersItems = Array.isArray(usersData) ? usersData : (usersData?.data || []);
+            const rolesItems = Array.isArray(rolesData) ? rolesData : (rolesData?.data || []);
+            
+            setUsers(Array.isArray(usersItems) ? usersItems : []);
+            setRoles(Array.isArray(rolesItems) ? rolesItems : []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -541,6 +549,11 @@ export default function SettingsPage() {
             )
         }
     ];
+
+    // Permission check (after all hooks)
+    if (!permLoading && !can('settings.read')) {
+        return <AccessDenied feature="Settings" />;
+    }
 
     return (
         <AppLayout>

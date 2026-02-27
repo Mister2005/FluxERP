@@ -9,7 +9,7 @@ import {
     workOrderQuerySchema,
     workOrderStatusUpdateSchema 
 } from '../validators/workorder.validator.js';
-import { uuidSchema } from '../validators/common.validator.js';
+import { idParamSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -78,7 +78,7 @@ router.get('/overdue',
  */
 router.get('/:id',
     requirePermission('workorders.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const workOrder = await workOrderService.findById(req.params.id);
         res.json(successResponse(workOrder));
@@ -105,7 +105,7 @@ router.post('/',
  */
 router.put('/:id',
     requirePermission('workorders.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(updateWorkOrderSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -120,7 +120,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requirePermission('workorders.delete'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await workOrderService.delete(req.params.id, authReq.user!.userId);
@@ -138,7 +138,7 @@ router.delete('/:id',
  */
 router.post('/:id/status',
     requirePermission('workorders.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(workOrderStatusUpdateSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;

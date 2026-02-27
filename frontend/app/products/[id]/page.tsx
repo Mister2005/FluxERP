@@ -16,6 +16,7 @@ export default function ProductDetailPage() {
     const router = useRouter();
     const [product, setProduct] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -29,7 +30,7 @@ export default function ProductDetailPage() {
                 return res.json();
             })
             .then(data => {
-                setProduct(data);
+                setProduct(data?.data || data);
                 setLoading(false);
             })
             .catch(err => {
@@ -37,6 +38,27 @@ export default function ProductDetailPage() {
                 setLoading(false);
             });
     }, [params.id]);
+
+    const handleDelete = async () => {
+        if (!confirm('Are you sure you want to delete this product? This action cannot be undone.')) return;
+        setDeleting(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/${params.id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.error || data.message || 'Failed to delete product');
+            }
+            router.push('/products');
+        } catch (error: any) {
+            alert(error.message || 'Failed to delete product');
+        } finally {
+            setDeleting(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -189,7 +211,7 @@ export default function ProductDetailPage() {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <h1 className="text-3xl font-bold text-[#3E2723]">{product.name}</h1>
                     <div className="flex gap-3">
-                        <Button variant="danger" icon={Trash2}>Delete</Button>
+                        <Button variant="danger" icon={Trash2} onClick={handleDelete} isLoading={deleting}>Delete</Button>
                     </div>
                 </div>
             </div>

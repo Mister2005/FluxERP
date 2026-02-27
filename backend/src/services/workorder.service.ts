@@ -45,7 +45,7 @@ export interface WorkOrderQueryOptions {
     sortOrder?: 'asc' | 'desc';
 }
 
-type WorkOrderStatus = 'Planned' | 'Released' | 'InProgress' | 'OnHold' | 'Completed' | 'Cancelled';
+type WorkOrderStatus = 'draft' | 'planned' | 'scheduled' | 'in-progress' | 'completed' | 'cancelled';
 
 // ============================================================================
 // Work Order Service
@@ -54,12 +54,12 @@ type WorkOrderStatus = 'Planned' | 'Released' | 'InProgress' | 'OnHold' | 'Compl
 export class WorkOrderService {
     // Valid status transitions
     private readonly statusTransitions: Record<WorkOrderStatus, WorkOrderStatus[]> = {
-        Planned: ['Released', 'Cancelled'],
-        Released: ['InProgress', 'OnHold', 'Cancelled'],
-        InProgress: ['OnHold', 'Completed', 'Cancelled'],
-        OnHold: ['Released', 'InProgress', 'Cancelled'],
-        Completed: [],  // Terminal state
-        Cancelled: [],  // Terminal state
+        'draft': ['planned', 'cancelled'],
+        'planned': ['in-progress', 'cancelled'],
+        'scheduled': ['in-progress', 'cancelled'],
+        'in-progress': ['planned', 'completed', 'cancelled'],
+        'completed': [],  // Terminal state
+        'cancelled': [],  // Terminal state
     };
 
     /**
@@ -113,7 +113,7 @@ export class WorkOrderService {
                 name: data.name,
                 quantity: data.quantity,
                 priority: data.priority || 'medium',
-                status: 'Planned',
+                status: 'planned',
                 scheduledStart: data.scheduledStart,
                 scheduledEnd: data.scheduledEnd,
                 plannedStart: data.plannedStart,
@@ -261,7 +261,7 @@ export class WorkOrderService {
         }
 
         // Can't update completed or cancelled orders (most fields)
-        if (['Completed', 'Cancelled'].includes(existing.status)) {
+        if (['completed', 'cancelled'].includes(existing.status)) {
             throw new ValidationError(`Cannot update work order in ${existing.status} status`);
         }
 
@@ -343,11 +343,11 @@ export class WorkOrderService {
             status: newStatus,
         };
 
-        if (newStatus === 'InProgress' && !existing.actualStart) {
+        if (newStatus === 'in-progress' && !existing.actualStart) {
             updateData.actualStart = new Date();
         }
 
-        if (newStatus === 'Completed') {
+        if (newStatus === 'completed') {
             updateData.actualEnd = new Date();
             updateData.progress = 100;
         }
@@ -381,7 +381,7 @@ export class WorkOrderService {
             throw new NotFoundError('Work order not found');
         }
 
-        if (!['Planned', 'Cancelled'].includes(existing.status)) {
+        if (!['planned', 'cancelled'].includes(existing.status)) {
             throw new ValidationError(`Can only delete work orders in Planned or Cancelled status`);
         }
 
@@ -410,7 +410,7 @@ export class WorkOrderService {
 
         // Calculate on-time completion rate
         const completedOrders = await prisma.workOrder.findMany({
-            where: { status: 'Completed' },
+            where: { status: 'completed' },
             select: { scheduledEnd: true, actualEnd: true },
         });
 
@@ -445,7 +445,7 @@ export class WorkOrderService {
 
         return prisma.workOrder.findMany({
             where: {
-                status: { in: ['Planned', 'Released'] },
+                status: { in: ['planned', 'scheduled'] },
                 scheduledStart: {
                     gte: today,
                     lte: futureDate,

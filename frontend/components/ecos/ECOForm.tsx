@@ -73,16 +73,18 @@ export default function ECOForm({ initialData, isEdit = false }: ECOFormProps) {
             headers: { 'Authorization': `Bearer ${token}` }
         })
             .then(res => res.json())
-            .then(data => setProducts(data))
+            .then(data => {
+                const items = Array.isArray(data) ? data : (data?.data?.data || data?.data || []);
+                setProducts(Array.isArray(items) ? items : []);
+            })
             .catch(err => console.error('Failed to fetch products', err));
 
         if (initialData?.productId) {
-            // Should fetch specific product if list is partial, but assuming list has it for now or fetch individual
             fetch(`${process.env.NEXT_PUBLIC_API_URL}/products/${initialData.productId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             })
                 .then(res => res.json())
-                .then(data => setSelectedProduct(data));
+                .then(data => setSelectedProduct(data?.data || data));
         }
     }, [initialData?.productId]);
 
@@ -262,10 +264,12 @@ export default function ECOForm({ initialData, isEdit = false }: ECOFormProps) {
                                     disabled={!isEdit}
                                 >
                                     <option value="draft">Draft</option>
-                                    <option value="in-review">In Review</option>
+                                    <option value="submitted">Submitted</option>
+                                    <option value="under_review">Under Review</option>
                                     <option value="approved">Approved</option>
+                                    <option value="implementing">Implementing</option>
+                                    <option value="completed">Completed</option>
                                     <option value="rejected">Rejected</option>
-                                    <option value="implemented">Implemented</option>
                                 </select>
                             </div>
                         </div>

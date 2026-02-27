@@ -90,10 +90,10 @@ export default function WorkOrderDetailPage() {
                                 <dd className="mt-1">
                                     <Badge variant={
                                         workOrder.status === 'completed' ? 'success' :
-                                            workOrder.status === 'in_progress' ? 'warning' :
+                                            workOrder.status === 'in-progress' ? 'warning' :
                                                 workOrder.status === 'cancelled' ? 'error' : 'default'
                                     }>
-                                        {workOrder.status.replace('_', ' ')}
+                                        {workOrder.status.replace(/-/g, ' ')}
                                     </Badge>
                                 </dd>
                             </div>
@@ -265,9 +265,9 @@ export default function WorkOrderDetailPage() {
 
                     <div className="flex gap-3">
                         {workOrder.status === 'planned' && (
-                            <Button icon={Play} onClick={() => updateStatus('in_progress')}>Start</Button>
+                            <Button icon={Play} onClick={() => updateStatus('in-progress')}>Start</Button>
                         )}
-                        {workOrder.status === 'in_progress' && (
+                        {workOrder.status === 'in-progress' && (
                             <>
                                 <Button variant="secondary" icon={Pause} onClick={() => updateStatus('planned')}>Pause</Button>
                                 <Button icon={CheckCircle} onClick={() => updateStatus('completed')}>Complete</Button>

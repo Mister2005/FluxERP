@@ -143,6 +143,7 @@ export class AuthService {
                 email: user.email,
                 name: user.name,
                 role: user.role.name,
+                permissions: JSON.parse(user.role.permissions || '[]'),
             },
             token,
         };

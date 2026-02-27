@@ -52,12 +52,13 @@ export default function DashboardPage() {
             return;
         }
 
-        // Fetch dashboard data from analytics endpoint
-        fetch(`${process.env.NEXT_PUBLIC_API_URL}/analytics/dashboard`, {
+        // Fetch dashboard data from reports endpoint
+        fetch(`${process.env.NEXT_PUBLIC_API_URL}/reports/dashboard`, {
             headers: { 'Authorization': `Bearer ${token}` }
         })
             .then(res => res.json())
-            .then(data => {
+            .then(rawData => {
+                const data = rawData?.data || rawData;
                 if (data.counts) {
                     setStats({
                         products: data.counts.products || 0,
@@ -67,7 +68,11 @@ export default function DashboardPage() {
                     });
                 }
                 if (data.recentActivity) {
-                    setRecentActivity(data.recentActivity);
+                    // recentActivity may be { ecos, workOrders, auditLogs } or an array of audit logs
+                    const logs = Array.isArray(data.recentActivity)
+                        ? data.recentActivity
+                        : (data.recentActivity.auditLogs || []);
+                    setRecentActivity(logs);
                 }
                 if (data.insights) {
                     setInsights(data.insights);
@@ -76,27 +81,7 @@ export default function DashboardPage() {
             })
             .catch(err => {
                 console.error('Dashboard fetch error:', err);
-                // Fallback to reports endpoint
-                fetch(`${process.env.NEXT_PUBLIC_API_URL}/reports/dashboard`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                })
-                    .then(res => res.json())
-                    .then(response => {
-                        const data = response.data || response;
-                        if (data.counts) {
-                            setStats({
-                                products: data.counts.products || 0,
-                                boms: data.counts.boms || 0,
-                                ecos: data.counts.ecos || 0,
-                                workOrders: data.counts.workOrders || 0
-                            });
-                        }
-                        setLoading(false);
-                    })
-                    .catch(e => {
-                        console.error('Reports fetch error:', e);
-                        setLoading(false);
-                    });
+                setLoading(false);
             });
     }, [router]);
 

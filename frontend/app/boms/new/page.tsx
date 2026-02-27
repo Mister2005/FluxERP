@@ -45,7 +45,7 @@ export default function NewBOMPage() {
     const [formData, setFormData] = useState<BOMFormData>({
         name: '',
         productId: '',
-        version: '1.0',
+        version: '1',
         status: 'draft',
         components: [],
         operations: []
@@ -75,7 +75,10 @@ export default function NewBOMPage() {
             headers: { 'Authorization': `Bearer ${token}` }
         })
             .then(res => res.json())
-            .then(data => setProducts(data))
+            .then(data => {
+                const items = Array.isArray(data) ? data : (data?.data?.data || data?.data || []);
+                setProducts(Array.isArray(items) ? items : []);
+            })
             .catch(err => console.error(err));
     }, [router]);
 
@@ -95,7 +98,8 @@ export default function NewBOMPage() {
 
             if (response.ok) {
                 const data = await response.json();
-                router.push(`/boms/${data.id}`);
+                const created = data?.data || data;
+                router.push(`/boms/${created.id}`);
             } else {
                 alert('Failed to create BOM');
             }
@@ -241,7 +245,7 @@ export default function NewBOMPage() {
                                     type="number"
                                     min="1"
                                     value={newComponent.quantity}
-                                    onChange={(e) => setNewComponent({ ...newComponent, quantity: parseInt(e.target.value) })}
+                                    onChange={(e) => setNewComponent({ ...newComponent, quantity: parseInt(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 />
                             </div>
@@ -253,7 +257,7 @@ export default function NewBOMPage() {
                                     min="0"
                                     step="0.01"
                                     value={newComponent.unitCost}
-                                    onChange={(e) => setNewComponent({ ...newComponent, unitCost: parseFloat(e.target.value) })}
+                                    onChange={(e) => setNewComponent({ ...newComponent, unitCost: parseFloat(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 />
                             </div>
@@ -309,7 +313,7 @@ export default function NewBOMPage() {
                                     type="number"
                                     min="1"
                                     value={newOperation.sequence}
-                                    onChange={(e) => setNewOperation({ ...newOperation, sequence: parseInt(e.target.value) })}
+                                    onChange={(e) => setNewOperation({ ...newOperation, sequence: parseInt(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 />
                             </div>
@@ -342,7 +346,7 @@ export default function NewBOMPage() {
                                     type="number"
                                     min="0"
                                     value={newOperation.duration}
-                                    onChange={(e) => setNewOperation({ ...newOperation, duration: parseInt(e.target.value) })}
+                                    onChange={(e) => setNewOperation({ ...newOperation, duration: parseInt(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 />
                             </div>
@@ -354,7 +358,7 @@ export default function NewBOMPage() {
                                     min="0"
                                     step="0.01"
                                     value={newOperation.cost}
-                                    onChange={(e) => setNewOperation({ ...newOperation, cost: parseFloat(e.target.value) })}
+                                    onChange={(e) => setNewOperation({ ...newOperation, cost: parseFloat(e.target.value) || 0 })}
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                                 />
                             </div>

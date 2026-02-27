@@ -28,7 +28,8 @@ export default function DashboardCharts() {
                 const ecoRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ecos`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                const ecos = await ecoRes.json();
+                const ecoRaw = await ecoRes.json();
+                const ecos = Array.isArray(ecoRaw) ? ecoRaw : (ecoRaw?.data || []);
 
                 // Aggregate ECO Status
                 const statusCount: Record<string, number> = {};
@@ -58,7 +59,8 @@ export default function DashboardCharts() {
                 const prodRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/products`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                const products = await prodRes.json();
+                const prodRaw = await prodRes.json();
+                const products = Array.isArray(prodRaw) ? prodRaw : (prodRaw?.data || []);
 
                 // Aggregate Product Categories
                 const catCount: Record<string, number> = {};

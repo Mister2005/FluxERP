@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/Button';
@@ -9,8 +9,9 @@ import { Table } from '@/components/ui/Table';
 import { Plus, Search } from 'lucide-react';
 
 export default function BOMsPage() {
-    const [boms, setBoms] = useState([]);
+    const [boms, setBoms] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
     const router = useRouter();
 
     useEffect(() => {
@@ -25,7 +26,8 @@ export default function BOMsPage() {
         })
             .then(res => res.json())
             .then(data => {
-                setBoms(data);
+                const items = Array.isArray(data) ? data : (data?.data || []);
+                setBoms(items);
                 setLoading(false);
             })
             .catch(err => {
@@ -33,6 +35,18 @@ export default function BOMsPage() {
                 setLoading(false);
             });
     }, [router]);
+
+    const filteredBoms = useMemo(() => {
+        const search = searchTerm.toLowerCase();
+        if (!search) return boms;
+        return boms.filter((bom: any) =>
+            bom.name?.toLowerCase().includes(search) ||
+            bom.version?.toLowerCase().includes(search) ||
+            bom.product?.name?.toLowerCase().includes(search) ||
+            bom.product?.sku?.toLowerCase().includes(search) ||
+            bom.id?.toLowerCase().includes(search)
+        );
+    }, [boms, searchTerm]);
 
     const columns = [
         { 
@@ -90,14 +104,16 @@ export default function BOMsPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input 
                         type="text" 
-                        placeholder="Search BOMs..." 
+                        placeholder="Search by name, version, product..." 
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                     />
                 </div>
             </div>
 
             <Table 
-                data={boms} 
+                data={filteredBoms} 
                 columns={columns} 
                 isLoading={loading}
                 onRowClick={(row: any) => router.push(`/boms/${row.id}`)}

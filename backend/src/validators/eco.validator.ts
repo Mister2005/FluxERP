@@ -37,7 +37,7 @@ export const createECOSchema = z.object({
     title: requiredString(3, 200),
     description: requiredString(10, 5000),
     reason: requiredString(3, 2000).optional(),
-    type: z.enum(['standard', 'emergency', 'deviation']).default('standard'),
+    type: z.enum(['standard', 'emergency', 'deviation', 'bom-update', 'new-product', 'product-update']).default('standard'),
     priority: priorityEnum.default('medium'),
     productId: uuidSchema.optional(),
     bomId: uuidSchema.optional(),
@@ -52,7 +52,7 @@ export const updateECOSchema = z.object({
     title: requiredString(3, 200).optional(),
     description: requiredString(10, 5000).optional(),
     reason: requiredString(3, 2000).optional(),
-    type: z.enum(['standard', 'emergency', 'deviation']).optional(),
+    type: z.enum(['standard', 'emergency', 'deviation', 'bom-update', 'new-product', 'product-update']).optional(),
     priority: priorityEnum.optional(),
     status: ecoStatusEnum.optional(),
     productId: uuidSchema.optional().nullable(),
@@ -83,7 +83,7 @@ export const ecoQuerySchema = paginationSchema.extend({
     status: ecoStatusEnum.optional(),
     priority: priorityEnum.optional(),
     productId: uuidSchema.optional(),
-    type: z.enum(['standard', 'emergency', 'deviation']).optional(),
+    type: z.enum(['standard', 'emergency', 'deviation', 'bom-update', 'new-product', 'product-update']).optional(),
     search: z.string().max(200).optional(),
     showAll: z.coerce.boolean().default(false), // Include non-latest versions
 });

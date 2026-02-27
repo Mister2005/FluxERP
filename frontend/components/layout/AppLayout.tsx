@@ -1,17 +1,20 @@
 'use client';
 
+import { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
     return (
         <div className="flex h-screen bg-[#FAF8F6]">
             {/* Sidebar - Hidden on mobile, fixed width on desktop */}
-            <Sidebar />
+            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
             <div className="flex-1 flex flex-col md:ml-64 transition-all duration-300">
                 {/* Header - Sticky top */}
-                <Header />
+                <Header onMenuClick={() => setSidebarOpen(true)} />
 
                 {/* Main Content Area */}
                 <main className="flex-1 overflow-y-auto p-6">

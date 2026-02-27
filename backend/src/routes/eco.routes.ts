@@ -12,7 +12,7 @@ import {
     ecoCommentSchema,
     ecoApprovalSchema 
 } from '../validators/eco.validator.js';
-import { uuidSchema } from '../validators/common.validator.js';
+import { idParamSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -56,7 +56,7 @@ router.get('/stats',
  */
 router.get('/:id',
     requirePermission('ecos.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const eco = await ecoService.findById(req.params.id);
         res.json(successResponse(eco));
@@ -95,7 +95,7 @@ router.post('/',
  */
 router.put('/:id',
     requirePermission('ecos.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(updateECOSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -110,7 +110,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requirePermission('ecos.delete'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await ecoService.delete(req.params.id, authReq.user!.userId);
@@ -129,7 +129,7 @@ router.delete('/:id',
 router.post('/:id/status',
     requireAnyPermission(['ecos.write', 'ecos.approve']),
     aiLimiter,  // Rate limit AI analysis
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(ecoStatusUpdateSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -154,7 +154,7 @@ router.post('/:id/status',
  */
 router.post('/:id/approval',
     requirePermission('ecos.approve'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(ecoApprovalSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -179,7 +179,7 @@ router.post('/:id/approval',
  */
 router.post('/:id/comments',
     requirePermission('ecos.read'),  // Anyone who can read can comment
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(ecoCommentSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;

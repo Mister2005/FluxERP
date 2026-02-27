@@ -26,16 +26,13 @@ export default function BOMDetailPage() {
         })
             .then(res => res.json())
             .then(data => {
-                setBom(data);
+                const bomData = data?.data || data;
+                setBom(bomData);
+                // Use versions from the BOM response if available
+                if (bomData?.versions && Array.isArray(bomData.versions)) {
+                    setVersions(bomData.versions);
+                }
                 setLoading(false);
-                // Fetch versions
-                return fetch(`${process.env.NEXT_PUBLIC_API_URL}/boms/${params.id}/versions`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-            })
-            .then(res => res?.json())
-            .then(versionsData => {
-                if (versionsData) setVersions(versionsData);
             })
             .catch(err => {
                 console.error(err);
@@ -269,8 +266,19 @@ export default function BOMDetailPage() {
                     </div>
 
                     <div className="flex gap-3">
-                        <Button variant="secondary" icon={Edit}>Edit</Button>
-                        <Button variant="danger" icon={Trash2}>Delete</Button>
+                        <Button variant="secondary" icon={Edit} onClick={() => router.push(`/boms/${bom.id}/edit`)}>Edit</Button>
+                        <Button variant="danger" icon={Trash2} onClick={async () => {
+                            if (!confirm('Are you sure you want to delete this BOM?')) return;
+                            const token = localStorage.getItem('token');
+                            try {
+                                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/boms/${bom.id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Authorization': `Bearer ${token}` }
+                                });
+                                if (res.ok) router.push('/boms');
+                                else alert('Failed to delete BOM');
+                            } catch { alert('Error deleting BOM'); }
+                        }}>Delete</Button>
                     </div>
                 </div>
             </div>

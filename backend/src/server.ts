@@ -85,6 +85,20 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     }
 });
 
+// Public endpoint - returns available roles for signup (no auth required)
+authRouter.get('/roles', async (req: Request, res: Response) => {
+    try {
+        const roles = await prisma.iAMRole.findMany({
+            select: { id: true, name: true, description: true },
+            orderBy: { name: 'asc' },
+        });
+        res.json(roles);
+    } catch (error) {
+        console.error('Get public roles error:', error);
+        res.status(500).json({ error: 'Failed to fetch roles' });
+    }
+});
+
 authRouter.get('/me', authenticate, async (req: AuthRequest, res: Response) => {
     try {
         const user = await prisma.user.findUnique({
@@ -849,17 +863,7 @@ ecosRouter.delete('/:id', requirePermission('ecos.delete'), async (req: AuthRequ
     }
 });
 
-// Placeholder routers
-const createPlaceholderRouter = () => {
-    const router = Router();
-    router.use(authenticate);
-    router.get('/', (req, res) => res.json([]));
-    router.get('/:id', (req, res) => res.status(501).json({ error: 'Not implemented yet' }));
-    router.post('/', (req, res) => res.status(501).json({ error: 'Not implemented yet' }));
-    router.put('/:id', (req, res) => res.status(501).json({ error: 'Not implemented yet' }));
-    router.delete('/:id', (req, res) => res.status(501).json({ error: 'Not implemented yet' }));
-    return router;
-};
+
 
 // Mount all routes
 // AI Routes
@@ -1180,35 +1184,39 @@ rolesRouter.post('/refresh-defaults', async (req: AuthRequest, res: Response) =>
     try {
         const defaultPermissions: Record<string, string[]> = {
             'role-admin': [
-                'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
-                'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
-                'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
-                'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
-                'reports.view', 'reports.export',
-                'settings.view', 'settings.edit', 'settings.iam',
-                'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles',
-                'roles.view', 'roles.create', 'roles.edit', 'roles.delete'
+                'products.view', 'products.read', 'products.create', 'products.edit', 'products.write', 'products.delete', 'products.export',
+                'boms.view', 'boms.read', 'boms.create', 'boms.edit', 'boms.write', 'boms.delete', 'boms.canvas',
+                'ecos.view', 'ecos.read', 'ecos.create', 'ecos.edit', 'ecos.write', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write', 'workorders.delete',
+                'suppliers.view', 'suppliers.read', 'suppliers.create', 'suppliers.edit', 'suppliers.write', 'suppliers.delete',
+                'reports.view', 'reports.read', 'reports.export',
+                'settings.view', 'settings.read', 'settings.edit', 'settings.write', 'settings.iam',
+                'users.view', 'users.read', 'users.create', 'users.edit', 'users.write', 'users.delete', 'users.roles',
+                'roles.view', 'roles.read', 'roles.create', 'roles.edit', 'roles.write', 'roles.delete'
             ],
             'role-engineering': [
-                'products.view', 'products.create', 'products.edit',
-                'boms.view', 'boms.create', 'boms.edit', 'boms.canvas',
-                'ecos.view', 'ecos.create', 'ecos.edit',
-                'workorders.view', 'workorders.create', 'workorders.edit',
-                'reports.view'
+                'products.view', 'products.read', 'products.create', 'products.edit', 'products.write',
+                'boms.view', 'boms.read', 'boms.create', 'boms.edit', 'boms.write', 'boms.canvas',
+                'ecos.view', 'ecos.read', 'ecos.create', 'ecos.edit', 'ecos.write',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write',
+                'suppliers.view', 'suppliers.read',
+                'reports.view', 'reports.read'
             ],
             'role-approver': [
-                'products.view',
-                'boms.view',
-                'ecos.view', 'ecos.review', 'ecos.approve', 'ecos.reject',
-                'workorders.view',
-                'reports.view'
+                'products.view', 'products.read',
+                'boms.view', 'boms.read',
+                'ecos.view', 'ecos.read', 'ecos.review', 'ecos.approve', 'ecos.reject',
+                'workorders.view', 'workorders.read',
+                'suppliers.view', 'suppliers.read',
+                'reports.view', 'reports.read'
             ],
             'role-operations': [
-                'products.view',
-                'boms.view',
-                'ecos.view', 'ecos.submit',
-                'workorders.view', 'workorders.create', 'workorders.edit',
-                'reports.view'
+                'products.view', 'products.read',
+                'boms.view', 'boms.read',
+                'ecos.view', 'ecos.read', 'ecos.submit',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write',
+                'suppliers.view', 'suppliers.read',
+                'reports.view', 'reports.read'
             ]
         };
         
@@ -1424,6 +1432,85 @@ workOrdersRouter.patch('/:id', requirePermission('workorders.edit'), async (req:
     }
 });
 
+// POST status update with transition validation (used by Kanban drag-and-drop)
+const statusTransitions: Record<string, string[]> = {
+    'draft': ['planned', 'cancelled'],
+    'planned': ['in-progress', 'cancelled'],
+    'scheduled': ['in-progress', 'cancelled'],
+    'in-progress': ['planned', 'completed', 'cancelled'],
+    'completed': ['in-progress', 'planned'],
+    'cancelled': ['planned'],
+};
+
+workOrdersRouter.post('/:id/status', requirePermission('workorders.edit'), async (req: AuthRequest, res: Response) => {
+    try {
+        const id = String(req.params.id);
+        const { status: newStatus, comments } = req.body;
+
+        if (!newStatus) {
+            return res.status(400).json({ error: 'Status is required' });
+        }
+
+        const existing = await prisma.workOrder.findUnique({
+            where: { id },
+            include: { product: true, bom: true },
+        });
+
+        if (!existing) {
+            return res.status(404).json({ error: 'Work order not found' });
+        }
+
+        const currentStatus = existing.status;
+        const allowed = statusTransitions[currentStatus] || [];
+
+        if (!allowed.includes(newStatus)) {
+            return res.status(400).json({
+                error: `Invalid status transition from ${currentStatus} to ${newStatus}. Allowed: ${allowed.join(', ') || 'none'}`,
+            });
+        }
+
+        const updateData: any = { status: newStatus };
+        if (newStatus === 'in-progress' && !existing.actualStart) {
+            updateData.actualStart = new Date();
+        }
+        if (newStatus === 'completed') {
+            updateData.actualEnd = new Date();
+            updateData.progress = 100;
+        }
+
+        const workOrder = await prisma.workOrder.update({
+            where: { id },
+            data: updateData,
+            include: { product: true, bom: true },
+        });
+
+        // Send email notification (async)
+        if (currentStatus !== newStatus) {
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+            sendWorkOrderStatusChangedEmail(
+                [{ email: req.user!.email }],
+                {
+                    workOrderId: workOrder.id,
+                    workOrderName: workOrder.name || undefined,
+                    productName: workOrder.product.name,
+                    productSku: workOrder.product.sku,
+                    status: workOrder.status,
+                    priority: workOrder.priority,
+                    quantity: workOrder.quantity,
+                    link: `${frontendUrl}/work-orders/${workOrder.id}`,
+                    oldStatus: currentStatus,
+                    changedBy: req.user!.email,
+                }
+            ).catch(err => console.error('Failed to send work order status change email:', err));
+        }
+
+        res.json({ success: true, data: workOrder, message: `Work order status updated to ${newStatus}` });
+    } catch (error) {
+        console.error('Update work order status error:', error);
+        res.status(500).json({ error: 'Failed to update work order status' });
+    }
+});
+
 workOrdersRouter.delete('/:id', requirePermission('workorders.delete'), async (req: AuthRequest, res: Response) => {
     try {
         const id = String(req.params.id);
@@ -1453,7 +1540,7 @@ workOrdersRouter.delete('/:id', requirePermission('workorders.delete'), async (r
 const suppliersRouter = Router();
 suppliersRouter.use(authenticate);
 
-suppliersRouter.get('/', requirePermission('products.view'), async (req: AuthRequest, res: Response) => {
+suppliersRouter.get('/', requirePermission('suppliers.view'), async (req: AuthRequest, res: Response) => {
     try {
         const suppliers = await prisma.supplier.findMany({
             include: {
@@ -1470,7 +1557,7 @@ suppliersRouter.get('/', requirePermission('products.view'), async (req: AuthReq
     }
 });
 
-suppliersRouter.get('/:id', requirePermission('products.view'), async (req: AuthRequest, res: Response) => {
+suppliersRouter.get('/:id', requirePermission('suppliers.view'), async (req: AuthRequest, res: Response) => {
     try {
         const supplier = await prisma.supplier.findUnique({
             where: { id: String(req.params.id) },
@@ -1490,7 +1577,7 @@ suppliersRouter.get('/:id', requirePermission('products.view'), async (req: Auth
     }
 });
 
-suppliersRouter.post('/', requirePermission('products.create'), async (req: AuthRequest, res: Response) => {
+suppliersRouter.post('/', requirePermission('suppliers.create'), async (req: AuthRequest, res: Response) => {
     try {
         const { name, leadTimeDays, defectRate, onTimeDeliveryRate, contactPerson, email, phone, address, rating, isActive } = req.body;
 
@@ -1521,7 +1608,7 @@ suppliersRouter.post('/', requirePermission('products.create'), async (req: Auth
     }
 });
 
-suppliersRouter.put('/:id', requirePermission('products.edit'), async (req: AuthRequest, res: Response) => {
+suppliersRouter.put('/:id', requirePermission('suppliers.edit'), async (req: AuthRequest, res: Response) => {
     try {
         const id = String(req.params.id);
         const { name, leadTimeDays, defectRate, onTimeDeliveryRate, contactPerson, email, phone, address, rating, isActive } = req.body;
@@ -1555,7 +1642,7 @@ suppliersRouter.put('/:id', requirePermission('products.edit'), async (req: Auth
     }
 });
 
-suppliersRouter.delete('/:id', requirePermission('products.delete'), async (req: AuthRequest, res: Response) => {
+suppliersRouter.delete('/:id', requirePermission('suppliers.delete'), async (req: AuthRequest, res: Response) => {
     try {
         const id = String(req.params.id);
         await prisma.supplier.delete({ where: { id } });
@@ -1662,6 +1749,135 @@ analyticsRouter.get('/supplier-stats', requirePermission('reports.view'), async 
     }
 });
 
+// ECO Summary endpoint (used by Reports page)
+analyticsRouter.get('/eco-summary', requirePermission('reports.view'), async (req: AuthRequest, res: Response) => {
+    try {
+        const ecos = await prisma.eCO.findMany();
+        const statusCounts: Record<string, number> = {};
+        const priorityCounts: Record<string, number> = {};
+        const typeCounts: Record<string, number> = {};
+        let totalDays = 0;
+        let countWithDates = 0;
+
+        for (const eco of ecos) {
+            statusCounts[eco.status] = (statusCounts[eco.status] || 0) + 1;
+            priorityCounts[eco.priority] = (priorityCounts[eco.priority] || 0) + 1;
+            typeCounts[eco.type] = (typeCounts[eco.type] || 0) + 1;
+            if (eco.executedAt && eco.createdAt) {
+                totalDays += (new Date(eco.executedAt).getTime() - new Date(eco.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+                countWithDates++;
+            }
+        }
+
+        res.json({
+            total: ecos.length,
+            byStatus: Object.entries(statusCounts).map(([status, count]) => ({ status, count })),
+            byPriority: Object.entries(priorityCounts).map(([priority, count]) => ({ priority, count })),
+            byType: Object.entries(typeCounts).map(([type, count]) => ({ type, count })),
+            averageProcessingDays: countWithDates > 0 ? Math.round(totalDays / countWithDates) : 0,
+        });
+    } catch (error) {
+        console.error('ECO summary error:', error);
+        res.status(500).json({ error: 'Failed to fetch ECO summary' });
+    }
+});
+
+// Production stats endpoint (used by Reports page)
+analyticsRouter.get('/production', requirePermission('reports.view'), async (req: AuthRequest, res: Response) => {
+    try {
+        const workOrders = await prisma.workOrder.findMany();
+        const statusCounts: Record<string, number> = {};
+        const priorityCounts: Record<string, number> = {};
+        let completedOnTime = 0;
+        let completedTotal = 0;
+        let totalScrap = 0;
+        let totalRework = 0;
+        let totalQuantity = 0;
+
+        const now = new Date();
+        const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        let upcomingOrders = 0;
+
+        for (const wo of workOrders) {
+            statusCounts[wo.status] = (statusCounts[wo.status] || 0) + 1;
+            priorityCounts[wo.priority] = (priorityCounts[wo.priority] || 0) + 1;
+            totalScrap += wo.scrapCount;
+            totalRework += wo.reworkCount;
+            totalQuantity += wo.quantity;
+
+            if (wo.status === 'completed') {
+                completedTotal++;
+                if (wo.actualEnd && wo.scheduledEnd && new Date(wo.actualEnd) <= new Date(wo.scheduledEnd)) {
+                    completedOnTime++;
+                }
+            }
+
+            if (wo.status === 'planned' && wo.scheduledStart) {
+                const start = new Date(wo.scheduledStart);
+                if (start >= now && start <= sevenDaysFromNow) {
+                    upcomingOrders++;
+                }
+            }
+        }
+
+        const onTimeRate = completedTotal > 0 ? ((completedOnTime / completedTotal) * 100).toFixed(1) + '%' : 'N/A';
+        const scrapRate = totalQuantity > 0 ? ((totalScrap / totalQuantity) * 100).toFixed(1) + '%' : '0%';
+        const reworkRate = totalQuantity > 0 ? ((totalRework / totalQuantity) * 100).toFixed(1) + '%' : '0%';
+
+        res.json({
+            byStatus: Object.entries(statusCounts).map(([status, count]) => ({ status, count })),
+            byPriority: Object.entries(priorityCounts).map(([priority, count]) => ({ priority, count })),
+            metrics: {
+                onTimeCompletionRate: onTimeRate,
+                scrapRate,
+                reworkRate,
+                upcomingOrders,
+            },
+        });
+    } catch (error) {
+        console.error('Production error:', error);
+        res.status(500).json({ error: 'Failed to fetch production data' });
+    }
+});
+
+// Supplier Quality endpoint (used by Reports page)
+analyticsRouter.get('/supplier-quality', requirePermission('reports.view'), async (req: AuthRequest, res: Response) => {
+    try {
+        const suppliers = await prisma.supplier.findMany({
+            include: { defects: true }
+        });
+
+        const supplierData = suppliers.map(s => ({
+            id: s.id,
+            name: s.name,
+            leadTimeDays: s.leadTimeDays,
+            defectRate: +(s.defectRate * 100).toFixed(1),
+            onTimeDeliveryRate: +(s.onTimeDeliveryRate * 100).toFixed(1),
+            defectCount: s.defects?.length || 0,
+        }));
+
+        const severityCounts: Record<string, number> = {};
+        for (const s of suppliers) {
+            for (const d of (s.defects || [])) {
+                severityCounts[d.severity] = (severityCounts[d.severity] || 0) + 1;
+            }
+        }
+
+        const avgOnTime = suppliers.length > 0
+            ? ((suppliers.reduce((sum, s) => sum + s.onTimeDeliveryRate, 0) / suppliers.length) * 100).toFixed(1) + '%'
+            : '0%';
+
+        res.json({
+            suppliers: supplierData,
+            defectsBySeverity: Object.entries(severityCounts).map(([severity, count]) => ({ severity, count })),
+            averageOnTimeDeliveryRate: avgOnTime,
+        });
+    } catch (error) {
+        console.error('Supplier quality error:', error);
+        res.status(500).json({ error: 'Failed to fetch supplier quality data' });
+    }
+});
+
 analyticsRouter.get('/dashboard', requirePermission('reports.view'), async (req: AuthRequest, res: Response) => {
     try {
         const [products, boms, ecos, workOrders, suppliers] = await Promise.all([
@@ -1672,11 +1888,15 @@ analyticsRouter.get('/dashboard', requirePermission('reports.view'), async (req:
             prisma.supplier.count(),
         ]);
 
+        const activeWorkOrders = await prisma.workOrder.count({
+            where: { status: { in: ['planned', 'in-progress'] } }
+        });
+
         const recentECOs = await prisma.eCO.findMany({
             take: 5,
             orderBy: { createdAt: 'desc' },
             include: {
-                product: { select: { name: true } },
+                product: { select: { name: true, sku: true } },
                 requestedBy: { select: { name: true } }
             }
         });
@@ -1685,7 +1905,7 @@ analyticsRouter.get('/dashboard', requirePermission('reports.view'), async (req:
             take: 5,
             orderBy: { createdAt: 'desc' },
             include: {
-                product: { select: { name: true } }
+                product: { select: { name: true, sku: true } }
             }
         });
 
@@ -1722,9 +1942,20 @@ analyticsRouter.get('/dashboard', requirePermission('reports.view'), async (req:
 
         res.json({
             counts: { products, boms, ecos, workOrders, suppliers },
+            summary: {
+                totalProducts: products,
+                activeBOMs: boms,
+                activeECOs: ecos,
+                activeWorkOrders: activeWorkOrders,
+                activeSuppliers: suppliers,
+            },
             recentECOs,
             recentWorkOrders,
-            recentActivity,
+            recentActivity: {
+                ecos: recentECOs,
+                workOrders: recentWorkOrders,
+                auditLogs: recentActivity,
+            },
             insights: {
                 pendingECOs,
                 delayedWorkOrders,

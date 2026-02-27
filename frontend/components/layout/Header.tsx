@@ -1,9 +1,13 @@
 'use client';
 
-import { Bell, Search, User } from 'lucide-react';
+import { Bell, Search, User, Menu } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
-export default function Header() {
+interface HeaderProps {
+    onMenuClick?: () => void;
+}
+
+export default function Header({ onMenuClick }: HeaderProps) {
     const [user, setUser] = useState<{ name: string; email: string; role: any } | null>(null);
 
     useEffect(() => {
@@ -14,10 +18,17 @@ export default function Header() {
     }, []);
 
     return (
-        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 w-full">
-            {/* Search Bar */}
-            <div className="flex items-center w-full max-w-md">
-                <div className="relative w-full">
+        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-10 w-full">
+            {/* Left side - Hamburger + Search */}
+            <div className="flex items-center gap-3 w-full max-w-md">
+                <button
+                    onClick={onMenuClick}
+                    className="md:hidden p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                >
+                    <Menu className="h-5 w-5" />
+                </button>
+
+                <div className="relative w-full hidden sm:block">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <Search className="h-4 w-4 text-gray-400" />
                     </div>

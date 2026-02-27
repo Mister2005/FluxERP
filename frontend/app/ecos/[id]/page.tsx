@@ -33,7 +33,8 @@ export default function ECODetailPage() {
                 return res.json();
             })
             .then(data => {
-                setEco(data);
+                const ecoData = data?.data || data;
+                setEco(ecoData);
                 setLoading(false);
                 // Fetch versions
                 return fetch(`${process.env.NEXT_PUBLIC_API_URL}/ecos/${params.id}/versions`, {
@@ -42,7 +43,10 @@ export default function ECODetailPage() {
             })
             .then(res => res?.json())
             .then(versionsData => {
-                if (versionsData) setVersions(versionsData);
+                if (versionsData) {
+                    const items = versionsData?.data || versionsData;
+                    setVersions(Array.isArray(items) ? items : []);
+                }
             })
             .catch(err => {
                 console.error(err);
@@ -127,8 +131,8 @@ export default function ECODetailPage() {
         setActionLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ecos/${params.id}`, {
-                method: 'PUT',
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ecos/${params.id}/status`, {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
@@ -136,13 +140,24 @@ export default function ECODetailPage() {
                 body: JSON.stringify({ status: newStatus })
             });
 
-            if (!res.ok) throw new Error('Failed to update status');
+            if (!res.ok) {
+                const errData = await res.json().catch(() => null);
+                throw new Error(errData?.message || errData?.error || 'Failed to update status');
+            }
 
-            const updatedEco = await res.json();
-            setEco(updatedEco);
-        } catch (error) {
+            const result = await res.json();
+            const updatedEco = result?.data || result;
+            
+            // If a new version was created (different ID), navigate to it
+            if (updatedEco.id && updatedEco.id !== params.id) {
+                router.push(`/ecos/${updatedEco.id}`);
+            } else {
+                setEco(updatedEco);
+                fetchECO(); // refresh versions
+            }
+        } catch (error: any) {
             console.error(error);
-            alert('Failed to update status');
+            alert(error.message || 'Failed to update status');
         } finally {
             setActionLoading(false);
         }
@@ -558,7 +573,7 @@ export default function ECODetailPage() {
                     </div>
 
                     <div className="flex gap-3">
-                        {(eco.status === 'draft' || eco.status === 'in-review') && (
+                        {(eco.status === 'draft' || eco.status === 'submitted' || eco.status === 'under_review') && (
                             <Button variant="secondary" icon={Edit} onClick={() => router.push(`/ecos/${eco.id}/edit`)}>
                                 Edit Change
                             </Button>
@@ -566,7 +581,7 @@ export default function ECODetailPage() {
 
                         {eco.status === 'draft' && (
                             <Button
-                                onClick={() => handleStatusChange('in-review')}
+                                onClick={() => handleStatusChange('submitted')}
                                 isLoading={actionLoading}
                                 icon={Play}
                             >
@@ -574,7 +589,17 @@ export default function ECODetailPage() {
                             </Button>
                         )}
 
-                        {eco.status === 'in-review' && (
+                        {eco.status === 'submitted' && (
+                            <Button
+                                onClick={() => handleStatusChange('under_review')}
+                                isLoading={actionLoading}
+                                icon={Play}
+                            >
+                                Start Review
+                            </Button>
+                        )}
+
+                        {eco.status === 'under_review' && (
                             <>
                                 <Button
                                     variant="danger"
@@ -598,10 +623,22 @@ export default function ECODetailPage() {
 
                         {eco.status === 'approved' && (
                             <Button
-                                onClick={() => handleStatusChange('implemented')}
+                                onClick={() => handleStatusChange('implementing')}
                                 isLoading={actionLoading}
+                                icon={Play}
                             >
-                                Implement
+                                Start Implementation
+                            </Button>
+                        )}
+
+                        {eco.status === 'implementing' && (
+                            <Button
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => handleStatusChange('completed')}
+                                isLoading={actionLoading}
+                                icon={CheckCircle}
+                            >
+                                Mark Completed
                             </Button>
                         )}
                     </div>

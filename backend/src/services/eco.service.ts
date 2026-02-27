@@ -502,7 +502,309 @@ export class ECOService {
             userId 
         }, 'ECO status updated');
 
+        // ====================================================================
+        // ECO Cost Propagation: When ECO is completed, propagate cost/price
+        // changes to the product and all affected BOMs
+        // ====================================================================
+        if (newStatus === 'completed' && existing.productId) {
+            try {
+                await this.propagateCostChanges(existing, userId);
+            } catch (error) {
+                logger.error({ ecoId: id, error }, 'ECO cost propagation failed (non-blocking)');
+            }
+        }
+
         return this.formatECO(result);
+    }
+
+    /**
+     * Propagate cost/price changes from a completed ECO to the product and all affected BOMs.
+     * When an ECO modifies product cost, this method:
+     *   1. Detects cost/price fields in proposedChanges
+     *   2. Updates the product's cost in the system
+     *   3. Finds all active/latest BOMs that reference this product as a component
+     *   4. Creates new BOM versions with updated component unitCost and recalculated totalCost
+     */
+    private async propagateCostChanges(eco: any, userId: string) {
+        let proposedChanges: Record<string, any> = {};
+        try {
+            proposedChanges = eco.proposedChanges ? JSON.parse(eco.proposedChanges) : {};
+        } catch {
+            return; // Cannot parse, nothing to propagate
+        }
+
+        // Detect cost/price related fields in the proposed changes
+        const costKeys = ['cost', 'price', 'unitCost', 'unitPrice', 'unit_cost', 'unit_price'];
+        const costFieldLabels = ['Cost', 'Price', 'Unit Cost', 'Unit Price', 'unit cost', 'unit price'];
+        let newCost: number | null = null;
+
+        // Format 1: Direct keys — { cost: 100 } or { price: 50 }
+        for (const key of costKeys) {
+            if (proposedChanges[key] !== undefined && proposedChanges[key] !== null) {
+                const val = parseFloat(proposedChanges[key]);
+                if (!isNaN(val)) {
+                    newCost = val;
+                    break;
+                }
+            }
+        }
+
+        // Format 2: Nested fields — { fields: { cost: 100 } }
+        if (newCost === null && proposedChanges.fields) {
+            for (const key of costKeys) {
+                if (proposedChanges.fields[key] !== undefined) {
+                    const val = parseFloat(proposedChanges.fields[key]);
+                    if (!isNaN(val)) {
+                        newCost = val;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Format 3: Changes array from frontend — [{ field: 'Cost', oldValue: '100', newValue: '150' }]
+        if (newCost === null && Array.isArray(proposedChanges)) {
+            for (const change of proposedChanges) {
+                const fieldLower = (change.field || '').toLowerCase().replace(/\s+/g, '');
+                if (costKeys.includes(fieldLower) || costFieldLabels.map(l => l.toLowerCase().replace(/\s+/g, '')).includes(fieldLower)) {
+                    const val = parseFloat(change.newValue || change.value);
+                    if (!isNaN(val)) {
+                        newCost = val;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Format 4: Changes array nested — { changes: [{ field: 'cost', value: 100 }] }
+        if (newCost === null && !Array.isArray(proposedChanges) && Array.isArray((proposedChanges as any).changes)) {
+            for (const change of (proposedChanges as any).changes) {
+                if (costKeys.includes(change.field) && change.value !== undefined) {
+                    const val = parseFloat(change.value);
+                    if (!isNaN(val)) {
+                        newCost = val;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Format 5: Seed data format — { 'Unit Cost': { from: 125, to: 185 } }
+        if (newCost === null && typeof proposedChanges === 'object' && !Array.isArray(proposedChanges)) {
+            for (const key of Object.keys(proposedChanges)) {
+                const keyLower = key.toLowerCase().replace(/\s+/g, '');
+                if (costKeys.includes(keyLower) || costFieldLabels.map(l => l.toLowerCase().replace(/\s+/g, '')).includes(keyLower)) {
+                    const entry = proposedChanges[key];
+                    if (entry && typeof entry === 'object') {
+                        const val = parseFloat(entry.to ?? entry.newValue ?? entry.value);
+                        if (!isNaN(val)) {
+                            newCost = val;
+                            break;
+                        }
+                    } else {
+                        const val = parseFloat(entry);
+                        if (!isNaN(val)) {
+                            newCost = val;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (newCost === null) {
+            logger.info({ ecoId: eco.id }, 'ECO completed but no cost/price changes detected in proposedChanges');
+            return;
+        }
+
+        const productId = eco.productId;
+
+        logger.info({ ecoId: eco.id, productId, newCost }, 'Propagating ECO cost changes to product and BOMs');
+
+        // Step 1: Update the product's cost
+        await prisma.product.update({
+            where: { id: productId },
+            data: { cost: newCost },
+        });
+
+        logger.info({ productId, newCost }, 'Product cost updated from ECO');
+
+        // Step 2: Find all BOMs where this product is used as a component (active/latest BOMs)
+        const affectedComponents = await prisma.bOMComponent.findMany({
+            where: {
+                productId: productId,
+                bom: {
+                    OR: [
+                        { status: 'Active' },
+                        { isLatest: true },
+                    ],
+                },
+            },
+            include: {
+                bom: {
+                    include: {
+                        components: {
+                            include: {
+                                product: { select: { id: true, sku: true, name: true, cost: true } },
+                            },
+                        },
+                        operations: true,
+                    },
+                },
+            },
+        });
+
+        // Deduplicate by BOM ID (a product may appear multiple times in different components)
+        const processedBomIds = new Set<string>();
+        const affectedBoms = affectedComponents
+            .map(c => c.bom)
+            .filter(bom => {
+                if (processedBomIds.has(bom.id)) return false;
+                processedBomIds.add(bom.id);
+                return true;
+            });
+
+        if (affectedBoms.length === 0) {
+            logger.info({ productId }, 'No active BOMs reference this product as a component');
+            return;
+        }
+
+        logger.info(
+            { productId, affectedBomCount: affectedBoms.length, bomIds: affectedBoms.map(b => b.id) },
+            'Creating new BOM versions with updated costs'
+        );
+
+        // Step 3: For each affected BOM, create a new version with updated costs
+        for (const bom of affectedBoms) {
+            try {
+                // Calculate new component costs — update unitCost for the changed product
+                const newComponents = bom.components.map(comp => ({
+                    productId: comp.productId,
+                    quantity: comp.quantity,
+                    unitCost: comp.productId === productId ? newCost! : comp.unitCost,
+                }));
+
+                // Recalculate total cost: sum of (quantity * unitCost) for components + sum of operation costs
+                const componentsTotalCost = newComponents.reduce(
+                    (sum, c) => sum + (c.quantity * c.unitCost),
+                    0
+                );
+                const operationsTotalCost = bom.operations.reduce(
+                    (sum: number, op: any) => sum + op.cost,
+                    0
+                );
+                const newTotalCost = parseFloat((componentsTotalCost + operationsTotalCost).toFixed(2));
+
+                // Generate new version - simple integer increment (1, 2, 3, ...)
+                const currentVersionNum = parseInt(bom.version, 10) || 0;
+                let newVersion = String(currentVersionNum + 1);
+
+                // Check if version already exists, keep incrementing if needed
+                let versionExists = await prisma.bOM.findFirst({
+                    where: { productId: bom.productId, version: newVersion },
+                });
+                let attempts = 0;
+                while (versionExists && attempts < 20) {
+                    newVersion = String(parseInt(newVersion, 10) + 1);
+                    versionExists = await prisma.bOM.findFirst({
+                        where: { productId: bom.productId, version: newVersion },
+                    });
+                    attempts++;
+                }
+
+                // Mark current BOM as not latest
+                await prisma.bOM.update({
+                    where: { id: bom.id },
+                    data: { isLatest: false },
+                });
+
+                // Create new BOM version with updated costs
+                const newBom = await prisma.bOM.create({
+                    data: {
+                        name: `${bom.name.replace(/ \(v\d+\)$/, '')} (v${newVersion})`,
+                        productId: bom.productId,
+                        version: newVersion,
+                        status: 'Active',
+                        totalCost: newTotalCost,
+                        parentId: bom.id,
+                        isLatest: true,
+                        components: {
+                            create: newComponents,
+                        },
+                        operations: {
+                            create: bom.operations.map((op: any) => ({
+                                name: op.name,
+                                workCenter: op.workCenter,
+                                duration: op.duration,
+                                cost: op.cost,
+                                sequence: op.sequence,
+                            })),
+                        },
+                    },
+                });
+
+                logger.info(
+                    {
+                        originalBomId: bom.id,
+                        newBomId: newBom.id,
+                        newVersion,
+                        oldTotalCost: bom.totalCost,
+                        newTotalCost,
+                        ecoId: eco.id,
+                    },
+                    'New BOM version created from ECO cost propagation'
+                );
+            } catch (error) {
+                logger.error(
+                    { bomId: bom.id, ecoId: eco.id, error },
+                    'Failed to create new BOM version during cost propagation'
+                );
+            }
+        }
+
+        // Step 4: Also update the product on the ECO itself if it's the primary product
+        // (in case the ECO's product IS the BOM product, update the BOM for that product too)
+        const directBoms = await prisma.bOM.findMany({
+            where: {
+                productId: productId,
+                isLatest: true,
+                id: { notIn: Array.from(processedBomIds) },
+            },
+            include: {
+                components: true,
+                operations: true,
+            },
+        });
+
+        for (const bom of directBoms) {
+            try {
+                // Recalculate total cost with components' current costs
+                const componentsTotalCost = bom.components.reduce(
+                    (sum: number, c: any) => sum + (c.quantity * c.unitCost),
+                    0
+                );
+                const operationsTotalCost = bom.operations.reduce(
+                    (sum: number, op: any) => sum + op.cost,
+                    0
+                );
+                const newTotalCost = parseFloat((componentsTotalCost + operationsTotalCost).toFixed(2));
+
+                // Update totalCost on the BOM for the product whose cost changed
+                await prisma.bOM.update({
+                    where: { id: bom.id },
+                    data: { totalCost: newTotalCost },
+                });
+
+                logger.info(
+                    { bomId: bom.id, productId, newTotalCost, ecoId: eco.id },
+                    'Updated BOM totalCost for ECO product'
+                );
+            } catch (error) {
+                logger.error({ bomId: bom.id, error }, 'Failed to update direct BOM cost');
+            }
+        }
+
+        logger.info({ ecoId: eco.id, productId, newCost }, 'ECO cost propagation completed');
     }
 
     /**

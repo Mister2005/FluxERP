@@ -5,7 +5,7 @@ import { validateBody, validateQuery, validateParams } from '../middleware/valid
 import { authenticate, requirePermission } from '../middleware/auth.middleware.js';
 import { catchAsync } from '../middleware/error.middleware.js';
 import { createBOMSchema, updateBOMSchema, bomQuerySchema, cloneBOMSchema } from '../validators/bom.validator.js';
-import { uuidSchema } from '../validators/common.validator.js';
+import { idParamSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -49,7 +49,7 @@ router.get('/stats',
  */
 router.get('/:id',
     requirePermission('boms.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const bom = await bomService.findById(req.params.id);
         res.json(successResponse(bom));
@@ -62,7 +62,7 @@ router.get('/:id',
  */
 router.get('/product/:productId',
     requirePermission('boms.read'),
-    validateParams(z.object({ productId: uuidSchema })),
+    validateParams(z.object({ productId: z.string().min(1, 'Product ID is required') })),
     catchAsync(async (req, res) => {
         const { status } = req.query;
         const boms = await bomService.findByProductId(
@@ -105,7 +105,7 @@ router.post('/',
  */
 router.put('/:id',
     requirePermission('boms.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(updateBOMSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -120,7 +120,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requirePermission('boms.delete'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await bomService.delete(req.params.id, authReq.user!.userId);
@@ -134,13 +134,13 @@ router.delete('/:id',
  */
 router.post('/:id/clone',
     requirePermission('boms.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(cloneBOMSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         const bom = await bomService.clone(
             req.params.id,
-            req.body.newRevision,
+            req.body.newVersion,
             authReq.user!.userId
         );
         res.status(201).json(successResponse(bom, 'BOM cloned successfully'));

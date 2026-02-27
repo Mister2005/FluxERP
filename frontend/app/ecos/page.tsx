@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/Button';
@@ -9,8 +9,9 @@ import { Table } from '@/components/ui/Table';
 import { FileText, Plus, Search } from 'lucide-react';
 
 export default function ECOsPage() {
-    const [ecos, setEcos] = useState([]);
+    const [ecos, setEcos] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
     const router = useRouter();
 
     useEffect(() => {
@@ -25,7 +26,8 @@ export default function ECOsPage() {
         })
             .then(res => res.json())
             .then(data => {
-                setEcos(data);
+                const items = Array.isArray(data) ? data : (data?.data || []);
+                setEcos(items);
                 setLoading(false);
             })
             .catch(err => {
@@ -33,6 +35,17 @@ export default function ECOsPage() {
                 setLoading(false);
             });
     }, [router]);
+
+    const filteredEcos = useMemo(() => {
+        const search = searchTerm.toLowerCase();
+        if (!search) return ecos;
+        return ecos.filter((eco: any) =>
+            eco.title?.toLowerCase().includes(search) ||
+            eco.status?.toLowerCase().includes(search) ||
+            eco.priority?.toLowerCase().includes(search) ||
+            eco.id?.toLowerCase().includes(search)
+        );
+    }, [ecos, searchTerm]);
 
     const columns = [
         {
@@ -90,14 +103,16 @@ export default function ECOsPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                         type="text"
-                        placeholder="Search ECOs..."
+                        placeholder="Search ECOs by title, status, priority..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-[#8D6E63]"
                     />
                 </div>
             </div>
 
             <Table
-                data={ecos}
+                data={filteredEcos}
                 columns={columns}
                 isLoading={loading}
                 onRowClick={(row: any) => router.push(`/ecos/${row.id}`)}

@@ -25,7 +25,8 @@ export default function EditECOPage() {
                 return res.json();
             })
             .then(data => {
-                setEco(data);
+                const ecoData = data?.data || data;
+                setEco(ecoData);
                 setLoading(false);
             })
             .catch(err => {
@@ -45,7 +46,7 @@ export default function EditECOPage() {
     }
 
     if (!eco) {
-        return <AppLayout>ECP not found</AppLayout>
+        return <AppLayout>ECO not found</AppLayout>
     }
 
     return (

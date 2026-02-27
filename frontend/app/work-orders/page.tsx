@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Plus, Calendar, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { usePermissions } from '@/lib/permissions';
+import AccessDenied from '@/components/ui/AccessDenied';
 
 interface WorkOrder {
     id: string;
@@ -22,10 +24,22 @@ interface WorkOrder {
     bom?: { id: string; name: string; version: string };
 }
 
+const STATUS_COLUMNS = [
+    { key: 'planned', label: 'Planned', color: 'bg-blue-500' },
+    { key: 'in-progress', label: 'In Progress', color: 'bg-yellow-500' },
+    { key: 'completed', label: 'Completed', color: 'bg-green-500' },
+    { key: 'cancelled', label: 'Cancelled', color: 'bg-red-500' },
+] as const;
+
 export default function WorkOrdersPage() {
+    const { can, loading: permLoading } = usePermissions();
     const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+    const [draggedOrderId, setDraggedOrderId] = useState<string | null>(null);
+    const [dropTarget, setDropTarget] = useState<string | null>(null);
+    const [updating, setUpdating] = useState<string | null>(null);
+    const isDragging = useRef(false);
     const router = useRouter();
 
     useEffect(() => {
@@ -40,8 +54,9 @@ export default function WorkOrdersPage() {
         })
             .then(res => res.json())
             .then(data => {
-                if (Array.isArray(data)) {
-                    setWorkOrders(data);
+                const items = Array.isArray(data) ? data : (data?.data || []);
+                if (Array.isArray(items)) {
+                    setWorkOrders(items);
                 } else {
                     console.error('Expected array of work orders but got:', data);
                     setWorkOrders([]);
@@ -57,7 +72,7 @@ export default function WorkOrdersPage() {
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'planned': return 'bg-blue-100 text-blue-800';
-            case 'in_progress': return 'bg-yellow-100 text-yellow-800';
+            case 'in-progress': return 'bg-yellow-100 text-yellow-800';
             case 'completed': return 'bg-green-100 text-green-800';
             case 'cancelled': return 'bg-red-100 text-red-800';
             default: return 'bg-gray-100 text-gray-800';
@@ -73,24 +88,115 @@ export default function WorkOrdersPage() {
         }
     };
 
-    const safeWorkOrders = Array.isArray(workOrders) ? workOrders : [];
-
-    const groupedOrders = {
-        planned: safeWorkOrders.filter((wo: any) => wo.status === 'planned'),
-        in_progress: safeWorkOrders.filter((wo: any) => wo.status === 'in_progress'),
-        completed: safeWorkOrders.filter((wo: any) => wo.status === 'completed'),
-        cancelled: safeWorkOrders.filter((wo: any) => wo.status === 'cancelled')
+    // --- Drag and Drop handlers ---
+    const handleDragStart = (e: React.DragEvent, orderId: string) => {
+        isDragging.current = true;
+        setDraggedOrderId(orderId);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', orderId);
+        // Add a slight delay to make the drag image appear
+        const target = e.currentTarget as HTMLElement;
+        setTimeout(() => {
+            target.style.opacity = '0.5';
+        }, 0);
     };
 
-    const WorkOrderCard = ({ order }: { order: any }) => {
+    const handleDragEnd = (e: React.DragEvent) => {
+        isDragging.current = false;
+        setDraggedOrderId(null);
+        setDropTarget(null);
+        const target = e.currentTarget as HTMLElement;
+        target.style.opacity = '1';
+    };
+
+    const handleDragOver = (e: React.DragEvent, statusKey: string) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        setDropTarget(statusKey);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        // Only clear if leaving the column entirely (not entering a child)
+        const relatedTarget = e.relatedTarget as HTMLElement;
+        const currentTarget = e.currentTarget as HTMLElement;
+        if (!currentTarget.contains(relatedTarget)) {
+            setDropTarget(null);
+        }
+    };
+
+    const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+        e.preventDefault();
+        setDropTarget(null);
+        const orderId = e.dataTransfer.getData('text/plain');
+        if (!orderId) return;
+
+        const order = workOrders.find(wo => wo.id === orderId);
+        if (!order || order.status === newStatus) {
+            setDraggedOrderId(null);
+            return;
+        }
+
+        // Optimistic update
+        const previousOrders = [...workOrders];
+        setWorkOrders(prev => prev.map(wo =>
+            wo.id === orderId ? { ...wo, status: newStatus } : wo
+        ));
+        setDraggedOrderId(null);
+        setUpdating(orderId);
+
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workorders/${orderId}/status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify({ status: newStatus }),
+            });
+
+            if (!res.ok) {
+                // Revert on failure
+                const errData = await res.json().catch(() => ({}));
+                console.error('Failed to update status:', errData);
+                setWorkOrders(previousOrders);
+            }
+        } catch (err) {
+            console.error('Error updating work order status:', err);
+            setWorkOrders(previousOrders);
+        } finally {
+            setUpdating(null);
+        }
+    };
+
+    const safeWorkOrders = Array.isArray(workOrders) ? workOrders : [];
+
+    const groupedOrders: Record<string, WorkOrder[]> = {};
+    STATUS_COLUMNS.forEach(col => {
+        groupedOrders[col.key] = safeWorkOrders.filter(wo => wo.status === col.key);
+    });
+
+    const WorkOrderCard = ({ order }: { order: WorkOrder }) => {
         const dueDate = order.scheduledEnd || order.plannedEnd;
         const orderName = order.name || order.product?.name || 'Unnamed Work Order';
         const orderProgress = order.progress || 0;
-        
+        const isUpdating = updating === order.id;
+        const isBeingDragged = draggedOrderId === order.id;
+
         return (
             <div
-                className="bg-white p-4 rounded-lg border border-gray-200 hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => router.push(`/work-orders/${order.id}`)}
+                draggable
+                onDragStart={(e) => handleDragStart(e, order.id)}
+                onDragEnd={handleDragEnd}
+                onClick={() => {
+                    // Prevent navigation when dragging
+                    if (!isDragging.current) {
+                        router.push(`/work-orders/${order.id}`);
+                    }
+                }}
+                className={`bg-white p-4 rounded-lg border border-gray-200 hover:shadow-md transition-all cursor-grab active:cursor-grabbing ${
+                    isBeingDragged ? 'opacity-50 ring-2 ring-[#8D6E63]' : ''
+                } ${isUpdating ? 'animate-pulse' : ''}`}
             >
                 <div className="flex justify-between items-start mb-3">
                     <div>
@@ -130,6 +236,11 @@ export default function WorkOrdersPage() {
         );
     };
 
+    // Permission check (after all hooks)
+    if (!permLoading && !can('workorders.read')) {
+        return <AccessDenied feature="Work Orders" />;
+    }
+
     return (
         <AppLayout>
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -164,57 +275,33 @@ export default function WorkOrdersPage() {
                 </div>
             ) : viewMode === 'kanban' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div>
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                            <h2 className="font-semibold text-gray-900">Planned</h2>
-                            <span className="text-sm text-gray-500">({groupedOrders.planned.length})</span>
+                    {STATUS_COLUMNS.map(col => (
+                        <div
+                            key={col.key}
+                            onDragOver={(e) => handleDragOver(e, col.key)}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => handleDrop(e, col.key)}
+                            className={`rounded-lg transition-colors min-h-[200px] ${
+                                dropTarget === col.key ? 'bg-[#EFEBE9] ring-2 ring-[#8D6E63] ring-dashed' : ''
+                            }`}
+                        >
+                            <div className="flex items-center gap-2 mb-4 px-1">
+                                <div className={`w-3 h-3 rounded-full ${col.color}`}></div>
+                                <h2 className="font-semibold text-gray-900">{col.label}</h2>
+                                <span className="text-sm text-gray-500">({groupedOrders[col.key]?.length || 0})</span>
+                            </div>
+                            <div className="space-y-3">
+                                {groupedOrders[col.key]?.map((order) => (
+                                    <WorkOrderCard key={order.id} order={order} />
+                                ))}
+                                {groupedOrders[col.key]?.length === 0 && (
+                                    <div className="text-center py-8 text-gray-400 text-sm border-2 border-dashed border-gray-200 rounded-lg">
+                                        Drop here
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                        <div className="space-y-3">
-                            {groupedOrders.planned.map((order: any) => (
-                                <WorkOrderCard key={order.id} order={order} />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                            <h2 className="font-semibold text-gray-900">In Progress</h2>
-                            <span className="text-sm text-gray-500">({groupedOrders.in_progress.length})</span>
-                        </div>
-                        <div className="space-y-3">
-                            {groupedOrders.in_progress.map((order: any) => (
-                                <WorkOrderCard key={order.id} order={order} />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                            <h2 className="font-semibold text-gray-900">Completed</h2>
-                            <span className="text-sm text-gray-500">({groupedOrders.completed.length})</span>
-                        </div>
-                        <div className="space-y-3">
-                            {groupedOrders.completed.map((order: any) => (
-                                <WorkOrderCard key={order.id} order={order} />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                            <h2 className="font-semibold text-gray-900">Cancelled</h2>
-                            <span className="text-sm text-gray-500">({groupedOrders.cancelled.length})</span>
-                        </div>
-                        <div className="space-y-3">
-                            {groupedOrders.cancelled.map((order: any) => (
-                                <WorkOrderCard key={order.id} order={order} />
-                            ))}
-                        </div>
-                    </div>
+                    ))}
                 </div>
             ) : (
                 <Card>
@@ -253,10 +340,10 @@ export default function WorkOrdersPage() {
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <Badge variant={
                                                     order.status === 'completed' ? 'success' :
-                                                        order.status === 'in_progress' || order.status === 'in-progress' ? 'warning' :
+                                                        order.status === 'in-progress' ? 'warning' :
                                                             order.status === 'cancelled' ? 'error' : 'default'
                                                 }>
-                                                    {order.status.replace('_', ' ')}
+                                                    {order.status.replace(/-/g, ' ')}
                                                 </Badge>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">

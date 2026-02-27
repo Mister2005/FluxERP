@@ -108,7 +108,7 @@ export default function AIAssistantPage() {
                     <p className="text-gray-500">Ask questions about your data or get PLM insights</p>
                 </div>
 
-                <Card className="flex-1 flex flex-col overflow-hidden bg-white border border-gray-200 shadow-sm">
+                <Card className="flex-1 flex flex-col overflow-hidden bg-white border border-gray-200 shadow-sm" contentClassName="flex-1 flex flex-col overflow-hidden min-h-0">
                     {/* Messages Area */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#FAF8F6]">
                         {messages.map((msg) => (

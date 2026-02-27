@@ -3,11 +3,12 @@ import React from 'react';
 interface CardProps {
     children: React.ReactNode;
     className?: string;
+    contentClassName?: string;
     title?: string;
     action?: React.ReactNode;
 }
 
-export function Card({ children, className = '', title, action }: CardProps) {
+export function Card({ children, className = '', contentClassName, title, action }: CardProps) {
     return (
         <div className={`bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden ${className}`}>
             {(title || action) && (
@@ -16,7 +17,7 @@ export function Card({ children, className = '', title, action }: CardProps) {
                     {action && <div>{action}</div>}
                 </div>
             )}
-            <div className="p-6">
+            <div className={contentClassName || 'p-6'}>
                 {children}
             </div>
         </div>

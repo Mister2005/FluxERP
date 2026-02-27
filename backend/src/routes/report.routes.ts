@@ -89,16 +89,16 @@ router.get('/dashboard',
         // Process ECO stats
         const ecoByStatus: Record<string, number> = {};
         ecoStats.forEach(s => { ecoByStatus[s.status] = s._count; });
-        const activeECOs = (ecoByStatus['Submitted'] || 0) + 
-                          (ecoByStatus['UnderReview'] || 0) + 
-                          (ecoByStatus['Approved'] || 0) + 
-                          (ecoByStatus['Implementing'] || 0);
+        const activeECOs = (ecoByStatus['submitted'] || 0) + 
+                          (ecoByStatus['under_review'] || 0) + 
+                          (ecoByStatus['approved'] || 0) + 
+                          (ecoByStatus['implementing'] || 0);
 
         // Process work order stats
         const woByStatus: Record<string, number> = {};
         workOrderStats.forEach(s => { woByStatus[s.status] = s._count; });
-        const activeWorkOrders = (woByStatus['Released'] || 0) + 
-                                 (woByStatus['InProgress'] || 0);
+        const activeWorkOrders = (woByStatus['scheduled'] || 0) + 
+                                 (woByStatus['in-progress'] || 0);
 
         const dashboard = {
             summary: {
@@ -162,7 +162,7 @@ router.get('/eco-summary',
             }),
             // Get completed ECOs to calculate avg processing time
             prisma.eCO.findMany({
-                where: { ...where, status: 'Completed' },
+                where: { ...where, status: 'completed' },
                 select: { createdAt: true, updatedAt: true },
             }),
             prisma.eCO.count({ where }),
@@ -214,7 +214,7 @@ router.get('/production',
             }),
             // WorkOrder doesn't have completedQuantity/scrapQuantity - use progress/scrapCount/reworkCount
             prisma.workOrder.findMany({
-                where: { status: 'Completed' },
+                where: { status: 'completed' },
                 select: {
                     scheduledEnd: true,
                     actualEnd: true,
@@ -227,7 +227,7 @@ router.get('/production',
             // Upcoming work orders
             prisma.workOrder.count({
                 where: {
-                    status: { in: ['Planned', 'Released'] },
+                    status: { in: ['planned', 'scheduled'] },
                     scheduledStart: {
                         gte: new Date(),
                         lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

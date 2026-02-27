@@ -27,7 +27,7 @@ export default function SupplierDetailPage() {
         })
             .then(res => res.json())
             .then(data => {
-                setSupplier(data);
+                setSupplier(data?.data || data);
                 setLoading(false);
             })
             .catch(err => {

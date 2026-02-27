@@ -9,7 +9,7 @@ import {
     supplierQuerySchema,
     supplierDefectSchema 
 } from '../validators/supplier.validator.js';
-import { uuidSchema, paginationSchema } from '../validators/common.validator.js';
+import { idParamSchema, paginationSchema } from '../validators/common.validator.js';
 import { AuthRequest } from '../types/index.js';
 import { successResponse } from '../utils/helpers.js';
 
@@ -53,7 +53,7 @@ router.get('/stats',
  */
 router.get('/:id',
     requirePermission('suppliers.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const supplier = await supplierService.findById(req.params.id);
         res.json(successResponse(supplier));
@@ -80,7 +80,7 @@ router.post('/',
  */
 router.put('/:id',
     requirePermission('suppliers.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(updateSupplierSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -95,7 +95,7 @@ router.put('/:id',
  */
 router.delete('/:id',
     requirePermission('suppliers.delete'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
         await supplierService.delete(req.params.id, authReq.user!.userId);
@@ -113,7 +113,7 @@ router.delete('/:id',
  */
 router.get('/:id/defects',
     requirePermission('suppliers.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateQuery(paginationSchema),
     catchAsync(async (req, res) => {
         const result = await supplierService.getSupplierDefects(
@@ -130,7 +130,7 @@ router.get('/:id/defects',
  */
 router.post('/:id/defects',
     requirePermission('suppliers.write'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     validateBody(supplierDefectSchema),
     catchAsync(async (req, res) => {
         const authReq = req as AuthRequest;
@@ -148,7 +148,7 @@ router.post('/:id/defects',
  */
 router.get('/:id/defects/stats',
     requirePermission('suppliers.read'),
-    validateParams(uuidSchema),
+    validateParams(idParamSchema),
     catchAsync(async (req, res) => {
         const stats = await supplierService.getSupplierDefectStats(req.params.id);
         res.json(successResponse(stats));

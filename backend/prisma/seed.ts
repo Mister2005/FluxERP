@@ -32,14 +32,15 @@ async function main() {
             description: 'Full system access',
             isSystem: true,
             permissions: JSON.stringify([
-                'products.view', 'products.create', 'products.edit', 'products.delete', 'products.export',
-                'boms.view', 'boms.create', 'boms.edit', 'boms.delete', 'boms.canvas',
-                'ecos.view', 'ecos.create', 'ecos.edit', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
-                'workorders.view', 'workorders.create', 'workorders.edit', 'workorders.delete',
-                'reports.view', 'reports.export',
-                'settings.view', 'settings.edit', 'settings.iam',
-                'users.view', 'users.create', 'users.edit', 'users.delete', 'users.roles',
-                'roles.view', 'roles.create', 'roles.edit', 'roles.delete'
+                'products.view', 'products.read', 'products.create', 'products.edit', 'products.write', 'products.delete', 'products.export',
+                'boms.view', 'boms.read', 'boms.create', 'boms.edit', 'boms.write', 'boms.delete', 'boms.canvas',
+                'ecos.view', 'ecos.read', 'ecos.create', 'ecos.edit', 'ecos.write', 'ecos.delete', 'ecos.submit', 'ecos.review', 'ecos.approve', 'ecos.reject', 'ecos.apply',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write', 'workorders.delete',
+                'reports.view', 'reports.read', 'reports.export',
+                'settings.view', 'settings.read', 'settings.edit', 'settings.write', 'settings.iam',
+                'users.view', 'users.read', 'users.create', 'users.edit', 'users.write', 'users.delete', 'users.roles',
+                'roles.view', 'roles.read', 'roles.create', 'roles.edit', 'roles.write', 'roles.delete',
+                'suppliers.view', 'suppliers.read', 'suppliers.create', 'suppliers.edit', 'suppliers.write', 'suppliers.delete'
             ]),
         },
     });
@@ -51,11 +52,11 @@ async function main() {
             description: 'Engineering team access',
             isSystem: true,
             permissions: JSON.stringify([
-                'products.view', 'products.create', 'products.edit',
-                'boms.view', 'boms.create', 'boms.edit', 'boms.canvas',
-                'ecos.view', 'ecos.create', 'ecos.edit',
-                'workorders.view', 'workorders.create', 'workorders.edit',
-                'reports.view'
+                'products.view', 'products.read', 'products.create', 'products.edit', 'products.write',
+                'boms.view', 'boms.read', 'boms.create', 'boms.edit', 'boms.write', 'boms.canvas',
+                'ecos.view', 'ecos.read', 'ecos.create', 'ecos.edit', 'ecos.write',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write',
+                'reports.view', 'reports.read'
             ]),
         },
     });
@@ -67,10 +68,10 @@ async function main() {
             description: 'ECO approval authority',
             isSystem: true,
             permissions: JSON.stringify([
-                'products.view',
-                'boms.view',
-                'ecos.view', 'ecos.review', 'ecos.approve', 'ecos.reject',
-                'reports.view'
+                'products.view', 'products.read',
+                'boms.view', 'boms.read',
+                'ecos.view', 'ecos.read', 'ecos.approve',
+                'reports.view', 'reports.read'
             ]),
         },
     });
@@ -82,11 +83,12 @@ async function main() {
             description: 'Operations team access',
             isSystem: true,
             permissions: JSON.stringify([
-                'products.view',
-                'boms.view',
-                'ecos.view', 'ecos.submit',
-                'workorders.view', 'workorders.create', 'workorders.edit',
-                'reports.view'
+                'products.view', 'products.read',
+                'boms.view', 'boms.read',
+                'ecos.view', 'ecos.read', 'ecos.create', 'ecos.edit', 'ecos.write',
+                'workorders.view', 'workorders.read', 'workorders.create', 'workorders.edit', 'workorders.write',
+                'reports.view', 'reports.read',
+                'suppliers.view', 'suppliers.read'
             ]),
         },
     });
@@ -111,7 +113,7 @@ async function main() {
             email: 'rajesh.kumar@adani.com',
             password: hashedPassword,
             name: 'Rajesh Kumar',
-            roleId: approverRole.id,
+            roleId: engineeringRole.id,
             isActive: true,
         },
     });
@@ -314,7 +316,7 @@ async function main() {
             title: 'Upgrade Motor Bearings to Ceramic Type',
             description: 'Replace steel bearings with ceramic bearings for improved performance and longevity',
             type: 'bom-update',
-            status: 'done',
+            status: 'completed',
             priority: 'high',
             productId: 'prod-001',
             bomId: 'bom-001',
@@ -347,7 +349,7 @@ async function main() {
             description: 'Update control panel firmware to latest version with bug fixes',
             type: 'bom-update',
             status: 'approved',
-            priority: 'normal',
+            priority: 'medium',
             productId: 'prod-002',
             bomId: 'bom-002',
             requestedById: approverUser.id,
@@ -375,8 +377,8 @@ async function main() {
             title: 'New Cooling Fan Design Introduction',
             description: 'Introduce new cooling fan design with improved airflow',
             type: 'new-product',
-            status: 'in-review',
-            priority: 'normal',
+            status: 'under_review',
+            priority: 'medium',
             productId: 'prod-007',
             requestedById: engineerUser.id,
             requestedByName: engineerUser.name,

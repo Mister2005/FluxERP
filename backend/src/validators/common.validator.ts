@@ -44,19 +44,19 @@ export const searchSchema = z.object({
 });
 
 /**
- * ID parameter
+ * ID parameter (accepts any non-empty string for route params)
  */
 export const idParamSchema = z.object({
-    id: uuidSchema,
+    id: z.string().min(1, 'ID is required'),
 });
 
 // ============================================================================
 // Enums
 // ============================================================================
 
-export const priorityEnum = z.enum(['low', 'medium', 'high', 'critical']);
-export const ecoStatusEnum = z.enum(['draft', 'in-review', 'approved', 'rejected', 'implemented']);
-export const workOrderStatusEnum = z.enum(['draft', 'scheduled', 'in-progress', 'completed', 'cancelled']);
+export const priorityEnum = z.enum(['low', 'medium', 'normal', 'high', 'critical']);
+export const ecoStatusEnum = z.enum(['draft', 'submitted', 'under_review', 'approved', 'implementing', 'completed', 'rejected']);
+export const workOrderStatusEnum = z.enum(['draft', 'planned', 'scheduled', 'in-progress', 'completed', 'cancelled']);
 export const productStatusEnum = z.enum(['active', 'inactive', 'discontinued', 'draft']);
 export const bomStatusEnum = z.enum(['draft', 'active', 'obsolete']);
 

@@ -424,7 +424,7 @@ export class BOMService {
     /**
      * Clone a BOM to a new version
      */
-    async clone(id: string, newVersion: string, userId: string) {
+    async clone(id: string, newVersion: string | undefined, userId: string) {
         const original = await prisma.bOM.findUnique({
             where: { id },
             include: {
@@ -435,6 +435,19 @@ export class BOMService {
 
         if (!original) {
             throw new NotFoundError('BOM not found');
+        }
+
+        // Auto-generate next integer version if not provided
+        if (!newVersion) {
+            const allBoms = await prisma.bOM.findMany({
+                where: { productId: original.productId },
+                select: { version: true },
+            });
+            const maxVersion = allBoms.reduce((max, b) => {
+                const v = parseInt(b.version, 10);
+                return !isNaN(v) && v > max ? v : max;
+            }, 0);
+            newVersion = String(maxVersion + 1);
         }
 
         // Check if version already exists
@@ -457,7 +470,7 @@ export class BOMService {
 
         const clonedBOM = await prisma.bOM.create({
             data: {
-                name: `${original.name} (v${newVersion})`,
+                name: `${original.name.replace(/ \(v\d+\)$/, '')} (v${newVersion})`,
                 productId: original.productId,
                 version: newVersion,
                 status: 'Draft',
