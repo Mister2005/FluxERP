@@ -135,7 +135,13 @@ async function getUserPermissions(userId: string): Promise<string[]> {
 
     if (!user) return [];
 
-    const permissions = JSON.parse(user.role.permissions) as string[];
+    let permissions: string[];
+    try {
+        permissions = JSON.parse(user.role.permissions) as string[];
+    } catch {
+        logger.error({ userId, role: user.role.name }, 'Failed to parse role permissions JSON');
+        return [];
+    }
     permissionCache.set(userId, { permissions, timestamp: Date.now() });
     
     return permissions;

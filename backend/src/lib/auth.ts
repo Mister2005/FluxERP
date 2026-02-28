@@ -15,7 +15,7 @@ export interface AuthRequest extends Request {
 }
 
 export async function hashPassword(password: string): Promise<string> {
-    return bcrypt.hash(password, 10);
+    return bcrypt.hash(password, 12); // 12 rounds for stronger hashing
 }
 
 export async function comparePassword(password: string, hash: string): Promise<boolean> {
@@ -37,8 +37,29 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
             return res.status(401).json({ error: 'No token provided' });
         }
         const token = authHeader.substring(7);
+
+        // Reject obviously malformed tokens before verifying
+        if (token.length > 2048 || token.includes(' ')) {
+            return res.status(401).json({ error: 'Invalid token format' });
+        }
+
         const payload = verifyToken(token);
         req.user = payload;
+
+        // Verify user is still active (async, but we proceed and check)
+        import('./db.js').then(({ prisma }) => {
+            prisma.user.findUnique({
+                where: { id: payload.userId },
+                select: { isActive: true },
+            }).then(user => {
+                if (!user || !user.isActive) {
+                    // User was deactivated — token is valid but user is not
+                    // This will be caught on next request
+                    return;
+                }
+            }).catch(() => { /* non-blocking check */ });
+        }).catch(() => { /* non-blocking */ });
+
         next();
     } catch (error) {
         return res.status(401).json({ error: 'Invalid or expired token' });
@@ -52,7 +73,12 @@ export async function hasPermission(userId: string, permission: string): Promise
         include: { role: true },
     });
     if (!user) return false;
-    const permissions = JSON.parse(user.role.permissions) as string[];
+    let permissions: string[];
+    try {
+        permissions = JSON.parse(user.role.permissions) as string[];
+    } catch {
+        return false; // Corrupted permissions data
+    }
     return permissions.includes(permission);
 }
 

@@ -1,9 +1,9 @@
 import { Router, Response } from 'express';
-import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { authenticate, AuthRequest, requirePermission } from '../lib/auth.js';
 import { verifyEmailConnection, sendEmail } from '../services/email.service.js';
+import { sanitizeInput } from '../utils/sanitize.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,13 +85,47 @@ router.put('/email', requirePermission('settings.edit'), async (req: AuthRequest
   try {
     const { smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass, smtpFrom } = req.body;
 
-    // Update environment variables in memory
-    if (smtpHost !== undefined) process.env.SMTP_HOST = smtpHost;
-    if (smtpPort !== undefined) process.env.SMTP_PORT = smtpPort;
+    // Validate SMTP host — only allow valid hostnames (prevent SSRF)
+    if (smtpHost !== undefined) {
+      const hostPattern = /^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
+      if (!hostPattern.test(smtpHost) || smtpHost.length > 253) {
+        return res.status(400).json({ error: 'Invalid SMTP host format' });
+      }
+      process.env.SMTP_HOST = sanitizeInput(smtpHost, 253);
+    }
+
+    // Validate SMTP port — only allow valid port numbers
+    if (smtpPort !== undefined) {
+      const port = parseInt(String(smtpPort), 10);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        return res.status(400).json({ error: 'Invalid SMTP port (must be 1-65535)' });
+      }
+      process.env.SMTP_PORT = String(port);
+    }
+
     if (smtpSecure !== undefined) process.env.SMTP_SECURE = smtpSecure ? 'true' : 'false';
-    if (smtpUser !== undefined) process.env.SMTP_USER = smtpUser;
-    if (smtpPass !== undefined && smtpPass !== '') process.env.SMTP_PASS = smtpPass;
-    if (smtpFrom !== undefined) process.env.SMTP_FROM = smtpFrom;
+
+    // Validate email format for SMTP user
+    if (smtpUser !== undefined) {
+      if (smtpUser.length > 254 || (smtpUser && !smtpUser.includes('@'))) {
+        return res.status(400).json({ error: 'Invalid SMTP username (expected email format)' });
+      }
+      process.env.SMTP_USER = sanitizeInput(smtpUser, 254);
+    }
+
+    if (smtpPass !== undefined && smtpPass !== '') {
+      if (smtpPass.length > 256) {
+        return res.status(400).json({ error: 'SMTP password too long' });
+      }
+      process.env.SMTP_PASS = smtpPass;
+    }
+
+    if (smtpFrom !== undefined) {
+      if (smtpFrom.length > 254) {
+        return res.status(400).json({ error: 'SMTP From address too long' });
+      }
+      process.env.SMTP_FROM = sanitizeInput(smtpFrom, 254);
+    }
 
     // Note: This only updates runtime settings. For persistence, these should be stored in a database
     // or written to a .env file (not recommended for production)

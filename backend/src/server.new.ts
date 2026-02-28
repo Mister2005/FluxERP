@@ -40,14 +40,17 @@ app.use(helmet({
 // Custom security headers
 app.use(securityHeaders);
 
-// CORS configuration — allow explicit origins + all Vercel preview URLs
+// CORS configuration — allow explicit origins + Vercel preview URLs matching project
+const VERCEL_PROJECT_SLUG = 'fluxerp';
 app.use(cors({
     origin: (origin, callback) => {
         // Allow requests with no origin (mobile apps, curl, server-to-server)
         if (!origin) return callback(null, true);
 
-        // Allow any *.vercel.app preview / production URL
-        if (origin.endsWith('.vercel.app')) return callback(null, true);
+        // Allow Vercel preview/production URLs that match the project slug
+        if (origin.endsWith('.vercel.app') && origin.toLowerCase().includes(VERCEL_PROJECT_SLUG)) {
+            return callback(null, true);
+        }
 
         // Allow explicit origins from CORS_ORIGINS env var
         if (config.corsOrigins.includes(origin)) return callback(null, true);
