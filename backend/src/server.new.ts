@@ -40,9 +40,23 @@ app.use(helmet({
 // Custom security headers
 app.use(securityHeaders);
 
-// CORS configuration
+// CORS configuration — allow explicit origins + all Vercel preview URLs
 app.use(cors({
-    origin: config.corsOrigins,
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, curl, server-to-server)
+        if (!origin) return callback(null, true);
+
+        // Allow any *.vercel.app preview / production URL
+        if (origin.endsWith('.vercel.app')) return callback(null, true);
+
+        // Allow explicit origins from CORS_ORIGINS env var
+        if (config.corsOrigins.includes(origin)) return callback(null, true);
+
+        // Allow localhost during development
+        if (origin.match(/^https?:\/\/localhost(:\d+)?$/)) return callback(null, true);
+
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
