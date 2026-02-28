@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const router = useRouter();
+    const { login } = useAuth();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,8 +37,8 @@ export default function LoginPage() {
                 throw new Error('Invalid response from server');
             }
 
-            localStorage.setItem('token', authData.token);
-            localStorage.setItem('user', JSON.stringify(authData.user));
+            // Update AuthProvider state (also persists to localStorage)
+            login(authData.token, authData.user);
             router.push('/dashboard');
         } catch (err: any) {
             setError(err.message);

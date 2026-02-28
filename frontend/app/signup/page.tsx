@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/components/providers/AuthProvider';
 
 interface Role {
     id: string;
@@ -22,6 +23,7 @@ export default function SignupPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [rolesLoading, setRolesLoading] = useState(true);
     const router = useRouter();
+    const { login } = useAuth();
 
     // Fetch available roles
     useEffect(() => {
@@ -96,8 +98,7 @@ export default function SignupPage() {
 
             const authData = data.data || data;
             if (authData.token && authData.user) {
-                localStorage.setItem('token', authData.token);
-                localStorage.setItem('user', JSON.stringify(authData.user));
+                login(authData.token, authData.user);
                 router.push('/dashboard');
             } else {
                 // If server doesn't auto-login on register, redirect to login
