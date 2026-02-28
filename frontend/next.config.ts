@@ -16,15 +16,12 @@ const nextConfig: NextConfig = {
     
     // Configure image optimization
     images: {
-        domains: ['localhost'],
+        remotePatterns: [],
         unoptimized: process.env.NODE_ENV === 'development',
     },
-    
-    // Webpack configuration
-    webpack: (config, { isServer }) => {
-        // Handle any specific webpack configurations
-        return config;
-    },
+
+    // Turbopack configuration (Next.js 16 default bundler)
+    turbopack: {},
 };
 
 export default nextConfig;
