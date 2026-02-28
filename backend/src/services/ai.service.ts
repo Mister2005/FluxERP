@@ -1,4 +1,6 @@
 import { GoogleGenerativeAI, GenerativeModel, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
+import Groq from 'groq-sdk';
+import { Ollama } from 'ollama';
 import config from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { ServiceUnavailableError } from '../types/errors.js';
@@ -35,17 +37,25 @@ export interface ChatMessage {
 }
 
 // ============================================================================
-// AI Service
+// Provider Interface
 // ============================================================================
 
-export class AIService {
-    private genAI: GoogleGenerativeAI | null = null;
-    private model: GenerativeModel | null = null;
-    private modelName: string = '';
-    private initialized: boolean = false;
-    private initializationPromise: Promise<void> | null = null;
+interface AIProvider {
+    name: string;
+    generate(prompt: string): Promise<string>;
+    isAvailable(): boolean;
+}
 
-    // Model fallback chain
+// ============================================================================
+// Gemini Provider
+// ============================================================================
+
+class GeminiProvider implements AIProvider {
+    name = 'gemini';
+    private model: GenerativeModel | null = null;
+    private genAI: GoogleGenerativeAI | null = null;
+    private initialized = false;
+
     private readonly MODEL_OPTIONS = [
         'gemini-1.5-flash',
         'gemini-1.5-flash-latest',
@@ -53,87 +63,321 @@ export class AIService {
         'gemini-pro',
     ];
 
-    constructor() {
-        if (!config.geminiApiKey) {
-            logger.warn('Gemini API key not configured - AI features will be disabled');
-        }
+    isAvailable(): boolean {
+        return !!config.geminiApiKey;
     }
 
-    /**
-     * Initialize the AI model with fallback
-     */
-    private async initialize(): Promise<void> {
+    async initialize(): Promise<void> {
         if (this.initialized) return;
-        
-        if (this.initializationPromise) {
-            return this.initializationPromise;
-        }
-
-        this.initializationPromise = this._doInitialize();
-        return this.initializationPromise;
-    }
-
-    private async _doInitialize(): Promise<void> {
-        if (!config.geminiApiKey) {
-            throw new ServiceUnavailableError('AI service not configured');
-        }
+        if (!config.geminiApiKey) throw new Error('Gemini API key not configured');
 
         this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
 
-        // Try models in order until one works
         for (const modelName of this.MODEL_OPTIONS) {
             try {
-                logger.debug({ model: modelName }, 'Attempting to initialize AI model');
-                
                 const model = this.genAI.getGenerativeModel({
                     model: modelName,
                     safetySettings: [
-                        {
-                            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-                            threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                        },
-                        {
-                            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                            threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
-                        },
+                        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     ],
                 });
 
-                // Test the model with a simple request
                 await model.generateContent('test');
-                
                 this.model = model;
-                this.modelName = modelName;
                 this.initialized = true;
-                
-                logger.info({ model: modelName }, 'AI model initialized successfully');
+                logger.info({ provider: 'gemini', model: modelName }, 'Gemini initialized');
                 return;
             } catch (error: any) {
-                logger.warn({ model: modelName, error: error.message }, 'Model initialization failed, trying next');
+                logger.warn({ provider: 'gemini', model: modelName, error: error.message }, 'Model failed, trying next');
             }
         }
+        throw new Error('All Gemini models failed to initialize');
+    }
 
-        throw new ServiceUnavailableError('Failed to initialize any AI model');
+    async generate(prompt: string): Promise<string> {
+        await this.initialize();
+        if (!this.model) throw new Error('Gemini not initialized');
+
+        const result = await this.model.generateContent(prompt);
+        return result.response.text();
+    }
+}
+
+// ============================================================================
+// Groq Provider (Free: llama, mixtral, gemma models)
+// ============================================================================
+
+class GroqProvider implements AIProvider {
+    name = 'groq';
+    private client: Groq | null = null;
+    private modelName = '';
+
+    private readonly MODEL_OPTIONS = [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'mixtral-8x7b-32768',
+        'gemma2-9b-it',
+    ];
+
+    isAvailable(): boolean {
+        return !!config.groqApiKey;
+    }
+
+    async initialize(): Promise<void> {
+        const apiKey = config.groqApiKey;
+        if (!apiKey) throw new Error('Groq API key not configured');
+
+        this.client = new Groq({ apiKey });
+
+        // Test models
+        for (const model of this.MODEL_OPTIONS) {
+            try {
+                await this.client.chat.completions.create({
+                    model,
+                    messages: [{ role: 'user', content: 'test' }],
+                    max_tokens: 5,
+                });
+                this.modelName = model;
+                logger.info({ provider: 'groq', model }, 'Groq initialized');
+                return;
+            } catch (error: any) {
+                logger.warn({ provider: 'groq', model, error: error.message }, 'Model failed, trying next');
+            }
+        }
+        throw new Error('All Groq models failed');
+    }
+
+    async generate(prompt: string): Promise<string> {
+        if (!this.client || !this.modelName) await this.initialize();
+        if (!this.client) throw new Error('Groq not initialized');
+
+        const completion = await this.client.chat.completions.create({
+            model: this.modelName,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 4096,
+        });
+
+        return completion.choices[0]?.message?.content || '';
+    }
+}
+
+// ============================================================================
+// Ollama Provider (Cloud API at ollama.com + self-hosted)
+// Uses official 'ollama' JS SDK
+// ============================================================================
+
+class OllamaProvider implements AIProvider {
+    name = 'ollama';
+    private client: Ollama | null = null;
+    private modelName = '';
+    private isCloud = false;
+
+    // Cloud models available on ollama.com
+    private readonly CLOUD_MODEL_OPTIONS = [
+        'llama4-maverick',
+        'llama4-scout',
+        'qwen3:235b',
+        'qwen3:32b',
+        'deepseek-r1:70b',
+        'gemma3:27b',
+        'phi4:14b',
+        'mistral-small:24b',
+    ];
+
+    // Local model fallbacks
+    private readonly LOCAL_MODEL_OPTIONS = [
+        'llama3.2',
+        'llama3.1',
+        'mistral',
+        'gemma2',
+        'phi3',
+    ];
+
+    isAvailable(): boolean {
+        // Available if cloud API key is set OR a local Ollama URL is set
+        return !!config.ollamaApiKey || !!config.ollamaUrl;
+    }
+
+    async initialize(): Promise<void> {
+        // Prefer cloud API if key is available
+        if (config.ollamaApiKey) {
+            this.client = new Ollama({
+                host: 'https://ollama.com',
+                headers: { 'Authorization': `Bearer ${config.ollamaApiKey}` },
+            });
+            this.isCloud = true;
+
+            // Try cloud models
+            for (const model of this.CLOUD_MODEL_OPTIONS) {
+                try {
+                    await this.client.chat({
+                        model,
+                        messages: [{ role: 'user', content: 'test' }],
+                        stream: false,
+                    });
+                    this.modelName = model;
+                    logger.info({ provider: 'ollama-cloud', model }, 'Ollama Cloud initialized');
+                    return;
+                } catch (error: any) {
+                    logger.warn({ provider: 'ollama-cloud', model, error: error.message }, 'Cloud model failed, trying next');
+                }
+            }
+            throw new Error('All Ollama Cloud models failed');
+        }
+
+        // Fall back to local/self-hosted Ollama
+        const host = config.ollamaUrl || 'http://localhost:11434';
+        this.client = new Ollama({ host });
+        this.isCloud = false;
+
+        try {
+            const listResult = await this.client.list();
+            const availableModels = listResult.models?.map(m => m.name) || [];
+
+            for (const preferred of this.LOCAL_MODEL_OPTIONS) {
+                const found = availableModels.find(m => m.startsWith(preferred));
+                if (found) {
+                    this.modelName = found;
+                    logger.info({ provider: 'ollama-local', model: found }, 'Ollama local initialized');
+                    return;
+                }
+            }
+
+            if (availableModels.length > 0) {
+                this.modelName = availableModels[0];
+                logger.info({ provider: 'ollama-local', model: this.modelName }, 'Ollama using first available model');
+                return;
+            }
+
+            throw new Error('No models available in local Ollama');
+        } catch (error: any) {
+            throw new Error(`Ollama init failed: ${error.message}`);
+        }
+    }
+
+    async generate(prompt: string): Promise<string> {
+        if (!this.client || !this.modelName) await this.initialize();
+        if (!this.client) throw new Error('Ollama not initialized');
+
+        const response = await this.client.chat({
+            model: this.modelName,
+            messages: [{ role: 'user', content: prompt }],
+            stream: false,
+            options: { temperature: 0.7 },
+        });
+
+        return response.message?.content || '';
+    }
+}
+
+// ============================================================================
+// Multi-Provider AI Service with Automatic Failover
+// ============================================================================
+
+export class AIService {
+    private providers: AIProvider[] = [];
+    private failureCounts: Map<string, { count: number; lastFailure: number }> = new Map();
+
+    private readonly MAX_FAILURES = 3;
+    private readonly FAILURE_WINDOW_MS = 5 * 60 * 1000;
+    private readonly RECOVERY_TIME_MS = 2 * 60 * 1000;
+
+    constructor() {
+        const gemini = new GeminiProvider();
+        const groq = new GroqProvider();
+        const ollama = new OllamaProvider();
+
+        if (gemini.isAvailable()) this.providers.push(gemini);
+        if (groq.isAvailable()) this.providers.push(groq);
+        if (ollama.isAvailable()) this.providers.push(ollama);
+
+        if (this.providers.length === 0) {
+            logger.warn('No AI providers configured - AI features will be disabled');
+        } else {
+            logger.info(
+                { providers: this.providers.map(p => p.name) },
+                `AI service initialized with ${this.providers.length} provider(s)`
+            );
+        }
+    }
+
+    private isProviderHealthy(provider: AIProvider): boolean {
+        const failure = this.failureCounts.get(provider.name);
+        if (!failure) return true;
+
+        const now = Date.now();
+
+        if (now - failure.lastFailure > this.FAILURE_WINDOW_MS) {
+            this.failureCounts.delete(provider.name);
+            return true;
+        }
+
+        if (failure.count >= this.MAX_FAILURES) {
+            return now - failure.lastFailure > this.RECOVERY_TIME_MS;
+        }
+
+        return true;
+    }
+
+    private recordFailure(provider: AIProvider): void {
+        const existing = this.failureCounts.get(provider.name);
+        const now = Date.now();
+
+        if (existing && now - existing.lastFailure < this.FAILURE_WINDOW_MS) {
+            existing.count++;
+            existing.lastFailure = now;
+        } else {
+            this.failureCounts.set(provider.name, { count: 1, lastFailure: now });
+        }
+
+        logger.warn(
+            { provider: provider.name, failures: this.failureCounts.get(provider.name)?.count },
+            'AI provider failure recorded'
+        );
+    }
+
+    private recordSuccess(provider: AIProvider): void {
+        this.failureCounts.delete(provider.name);
     }
 
     /**
-     * Get the initialized model
+     * Generate content with automatic failover across providers
      */
-    private async getModel(): Promise<GenerativeModel> {
-        await this.initialize();
-        if (!this.model) {
-            throw new ServiceUnavailableError('AI model not available');
+    async generate(prompt: string): Promise<string> {
+        if (this.providers.length === 0) {
+            throw new ServiceUnavailableError('No AI providers configured');
         }
-        return this.model;
+
+        const errors: string[] = [];
+
+        for (const provider of this.providers) {
+            if (!this.isProviderHealthy(provider)) {
+                logger.debug({ provider: provider.name }, 'Skipping unhealthy provider');
+                continue;
+            }
+
+            try {
+                logger.debug({ provider: provider.name }, 'Attempting AI generation');
+                const result = await provider.generate(prompt);
+                this.recordSuccess(provider);
+                return result;
+            } catch (error: any) {
+                this.recordFailure(provider);
+                errors.push(`${provider.name}: ${error.message}`);
+                logger.warn({ provider: provider.name, error: error.message }, 'Provider failed, trying next');
+            }
+        }
+
+        throw new ServiceUnavailableError(`All AI providers failed: ${errors.join('; ')}`);
     }
 
     /**
      * Analyze ECO risk using AI
      */
     async analyzeECORisk(input: ECORiskInput): Promise<RiskAnalysisResult> {
-        const model = await this.getModel();
-
-        const productInfo = input.product 
+        const productInfo = input.product
             ? `${input.product.name} (${input.product.sku}) - Category: ${input.product.category}`
             : 'Not specified';
 
@@ -157,31 +401,18 @@ Please analyze this ECO and respond with a JSON object containing:
     "overallAssessment": "<2-3 sentence summary of the risk level and main concerns>"
 }
 
-Consider factors like:
-- Manufacturing complexity
-- Supply chain impact
-- Quality implications
-- Timeline feasibility
-- Resource requirements
-- Regulatory compliance (if applicable)
-- Historical patterns for similar changes
+Consider factors like manufacturing complexity, supply chain impact, quality implications, timeline feasibility, resource requirements, and regulatory compliance.
 
 Respond ONLY with the JSON object, no additional text.`;
 
         try {
-            const result = await model.generateContent(prompt);
-            const response = result.response;
-            const text = response.text();
+            const text = await this.generate(prompt);
 
-            // Parse the JSON response
             const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('Invalid AI response format');
-            }
+            if (!jsonMatch) throw new Error('Invalid AI response format');
 
             const analysis = JSON.parse(jsonMatch[0]) as RiskAnalysisResult;
 
-            // Validate and sanitize the response
             return {
                 riskScore: Math.max(1, Math.min(10, analysis.riskScore || 5)),
                 predictedDelay: Math.max(0, analysis.predictedDelay || 0),
@@ -192,8 +423,6 @@ Respond ONLY with the JSON object, no additional text.`;
             };
         } catch (error: any) {
             logger.error({ error: error.message, ecoTitle: input.title }, 'AI risk analysis failed');
-            
-            // Return a default response on failure
             return {
                 riskScore: 5,
                 predictedDelay: 0,
@@ -209,8 +438,6 @@ Respond ONLY with the JSON object, no additional text.`;
      * Chat with AI assistant
      */
     async chat(messages: ChatMessage[], context?: Record<string, any>): Promise<string> {
-        const model = await this.getModel();
-
         const systemPrompt = `You are FluxERP AI Assistant, an expert in manufacturing ERP systems, engineering change management, bill of materials, production planning, and supply chain operations.
 
 Your capabilities include:
@@ -224,20 +451,17 @@ ${context ? `Current Context:\n${JSON.stringify(context, null, 2)}` : ''}
 
 Please provide helpful, accurate, and concise responses. If you're unsure about something specific to the user's data, acknowledge that and provide general guidance.`;
 
-        // Build conversation history
-        const conversationHistory = messages.map(m => 
+        const conversationHistory = messages.map(m =>
             `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
         ).join('\n\n');
 
         const fullPrompt = `${systemPrompt}\n\nConversation:\n${conversationHistory}\n\nAssistant:`;
 
         try {
-            const result = await model.generateContent(fullPrompt);
-            const response = result.response;
-            return response.text();
+            return await this.generate(fullPrompt);
         } catch (error: any) {
             logger.error({ error: error.message }, 'AI chat failed');
-            throw new ServiceUnavailableError('AI service temporarily unavailable');
+            throw new ServiceUnavailableError('AI service temporarily unavailable. All providers exhausted.');
         }
     }
 
@@ -252,8 +476,6 @@ Please provide helpful, accurate, and concise responses. If you're unsure about 
         potentialSavings: string;
         alternativeComponents: string[];
     }> {
-        const model = await this.getModel();
-
         const prompt = `Analyze the following Bill of Materials and suggest optimizations:
 
 Product: ${bomData.productName}
@@ -272,15 +494,12 @@ Respond with JSON:
     "alternativeComponents": [<list of alternative component suggestions>]
 }
 
-Response ONLY with the JSON object.`;
+Respond ONLY with the JSON object.`;
 
         try {
-            const result = await model.generateContent(prompt);
-            const text = result.response.text();
+            const text = await this.generate(prompt);
             const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) {
-                throw new Error('Invalid response format');
-            }
+            if (!jsonMatch) throw new Error('Invalid response format');
             return JSON.parse(jsonMatch[0]);
         } catch (error: any) {
             logger.error({ error: error.message }, 'BOM optimization analysis failed');
@@ -293,13 +512,17 @@ Response ONLY with the JSON object.`;
     }
 
     /**
-     * Get model info
+     * Get status of all providers
      */
     getModelInfo() {
         return {
-            initialized: this.initialized,
-            model: this.modelName,
-            available: !!config.geminiApiKey,
+            availableProviders: this.providers.map(p => ({
+                name: p.name,
+                healthy: this.isProviderHealthy(p),
+                failures: this.failureCounts.get(p.name)?.count || 0,
+            })),
+            totalProviders: this.providers.length,
+            available: this.providers.length > 0,
         };
     }
 }

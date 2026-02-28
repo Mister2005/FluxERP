@@ -57,8 +57,11 @@ export const config = {
     jwtSecret: getEnvVar('JWT_SECRET', 'default-secret-change-in-production'),
     jwtExpiresIn: getEnvVar('JWT_EXPIRES_IN', '7d'),
 
-    // Gemini AI
+    // AI Providers
     geminiApiKey: getEnvVar('GEMINI_API_KEY', ''),
+    groqApiKey: getEnvVar('GROQ_API_KEY', ''),
+    ollamaApiKey: getEnvVar('OLLAMA_API_KEY', ''),
+    ollamaUrl: getEnvVar('OLLAMA_URL', ''),
 
     // Rate Limiting
     rateLimit: {
