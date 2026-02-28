@@ -158,8 +158,8 @@ router.get('/detailed', async (req, res) => {
         const aiInfo = aiService.getModelInfo();
         checks.ai = {
             status: aiInfo.available ? 'available' : 'unavailable',
-            model: aiInfo.model || 'not initialized',
-            initialized: aiInfo.initialized,
+            providers: aiInfo.availableProviders,
+            totalProviders: aiInfo.totalProviders,
         };
     } catch (error) {
         checks.ai = { status: 'error', error: 'Check failed' };
